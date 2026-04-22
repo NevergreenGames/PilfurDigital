@@ -1,25 +1,28 @@
 import { create } from 'zustand';
 import {
+  AbilityDraftOption,
+  CharacterAbility,
   Die,
-  DieSize,
   GameState,
+  Grid,
   HeistState,
   HeistTarget,
   MapNode,
-  PhaseCard,
-  PhaseSlot,
+  Position,
   RunState,
   Screen,
+  Tile,
+  TileId,
 } from '../engine/types';
 import { createDie, nextDieSize, rollValue } from '../engine/dice';
 import { findSatisfyingSubset, isSubsetSatisfying } from '../engine/requirements';
 import { applyEffect } from '../engine/effects';
 import { PHASE_CARDS } from '../content/phaseCards';
 import { CHARACTERS } from '../content/characters';
-import { getTargetsByTier } from '../content/targets';
+import { TARGETS, getTargetsByTier } from '../content/targets';
+import { draftedAbilityPool } from '../content/abilities';
+import { bfsReachable, generateGrid, neighbors8 } from '../engine/gridGen';
 
-const STARTING_DECK_SIZE = 12;
-const STARTING_HAND_SIZE = 5;
 const TOTAL_NODES = 5;
 
 function shuffle<T>(arr: T[]): T[] {
@@ -33,17 +36,6 @@ function shuffle<T>(arr: T[]): T[] {
 
 function randomPick<T>(arr: T[], count: number): T[] {
   return shuffle(arr).slice(0, count);
-}
-
-function buildStartingDeck(): PhaseCard[] {
-  const pool = PHASE_CARDS.filter((c) => c.type === 'phase');
-  const picks: PhaseCard[] = [];
-  const shuffled = shuffle(pool);
-  for (let i = 0; i < STARTING_DECK_SIZE; i += 1) {
-    const base = shuffled[i % shuffled.length];
-    picks.push({ ...base, id: `${base.id}#${i}` });
-  }
-  return picks;
 }
 
 function buildMap(): MapNode[] {
@@ -60,135 +52,222 @@ function buildMap(): MapNode[] {
   return nodes;
 }
 
-function makePhaseSlot(card: PhaseCard, idx: number): PhaseSlot {
-  return { slotId: `slot-${idx}-${card.id}`, card, status: 'pending', assignedDice: [] };
+function rollAll(dice: Die[]): Die[] {
+  return dice.map((d) => ({ ...d, value: rollValue(d.size) }));
 }
 
-function rollAll(pool: Die[]): Die[] {
-  return pool.map((d) => ({ ...d, value: rollValue(d.size) }));
+function findTileById(grid: Grid, tileId: TileId): Tile | undefined {
+  return grid.tiles.find((t) => t.id === tileId);
 }
 
-function applyLevelUp(
+function findTileAt(grid: Grid, pos: Position): Tile | undefined {
+  return grid.tiles.find((t) => t.pos.row === pos.row && t.pos.col === pos.col);
+}
+
+function isAdjacent(a: Position, b: Position): boolean {
+  if (a.row === b.row && a.col === b.col) return false;
+  return Math.abs(a.row - b.row) <= 1 && Math.abs(a.col - b.col) <= 1;
+}
+
+function isUnfulfilled(t: Tile): boolean {
+  return t.state !== 'playerFulfilled' && t.state !== 'heatFulfilled';
+}
+
+function isWalkable(t: Tile): boolean {
+  return t.kind === 'start' || t.state === 'playerFulfilled';
+}
+
+// For trapped-detection only: treats revealed-but-unfulfilled phase tiles as
+// potentially traversable (the player may still fulfill them later). Only
+// permanent blockers — walls and heat-fulfilled tiles — count as impassable.
+function isNotPermanentlyBlocked(t: Tile): boolean {
+  return t.kind !== 'wall' && t.state !== 'heatFulfilled';
+}
+
+function revealFogAround(grid: Grid, center: Position): Grid {
+  const tiles = grid.tiles.map((t) => {
+    if (t.state !== 'hidden') return t;
+    const adj =
+      Math.abs(t.pos.row - center.row) <= 1 && Math.abs(t.pos.col - center.col) <= 1;
+    if (!adj) return t;
+    return { ...t, state: 'revealed' as const };
+  });
+  return { ...grid, tiles };
+}
+
+function setTile(grid: Grid, tileId: TileId, update: Partial<Tile>): Grid {
+  const tiles = grid.tiles.map((t) => (t.id === tileId ? { ...t, ...update } : t));
+  return { ...grid, tiles };
+}
+
+// Heat auto-fill pass: walk over revealed unfulfilled tiles 8-adjacent to player,
+// ordered by row*7+col, and attempt to satisfy each with heat dice.
+function heatAutoFillPass(
+  grid: Grid,
+  player: Position,
+  heat: Die[],
+  log: string[],
+): { grid: Grid; heat: Die[]; log: string[]; captured: boolean } {
+  let gridNext = grid;
+  let heatNext = heat;
+  const logNext = [...log];
+  let captured = false;
+
+  const adjTiles = neighbors8(player, grid.rows, grid.cols)
+    .map((p) => findTileAt(gridNext, p))
+    .filter((t): t is Tile => !!t)
+    .filter((t) => t.state === 'revealed' && isUnfulfilled(t) && t.card !== null)
+    .sort((a, b) => (a.pos.row * 7 + a.pos.col) - (b.pos.row * 7 + b.pos.col));
+
+  for (const t of adjTiles) {
+    // refetch — heat may have changed
+    const rolledHeat = heatNext.filter((d) => d.value !== null);
+    if (rolledHeat.length === 0) break;
+    const card = t.card;
+    if (!card) continue;
+    const subset = findSatisfyingSubset(rolledHeat, card.requirement);
+    if (!subset) continue;
+    const consumedIds = new Set(subset.map((d) => d.id));
+    heatNext = heatNext.filter((d) => !consumedIds.has(d.id));
+    // push tile momentum into heat unrolled
+    const newHeat: Die[] = (card.momentumDice ?? []).map((size) => ({
+      ...createDie(size, 'heat', card.id),
+      value: null,
+    }));
+    heatNext = [...heatNext, ...newHeat];
+    gridNext = setTile(gridNext, t.id, { state: 'heatFulfilled' });
+    logNext.push(`🔥 Heat took ${card.name}.`);
+    if (t.kind === 'target') {
+      captured = true;
+    }
+  }
+
+  return { grid: gridNext, heat: heatNext, log: logNext, captured };
+}
+
+// Outcome detection after any mutation
+function detectOutcome(grid: Grid, player: Position): 'won' | 'captured' | 'trapped' | null {
+  const targetTile = findTileAt(grid, grid.target);
+  if (!targetTile) return null;
+  if (targetTile.state === 'playerFulfilled') return 'won';
+  if (targetTile.state === 'heatFulfilled') return 'captured';
+
+  // trapped: BFS from player over all non-permanently-blocked tiles cannot reach any
+  // tile 8-adjacent to target, AND player is not currently adjacent to target.
+  // Unfulfilled phase tiles count as traversable here because they can still be
+  // fulfilled later; only walls and heat-fulfilled tiles truly block.
+  if (isAdjacent(player, grid.target)) return null;
+
+  const reachable = bfsReachable(grid, player, isNotPermanentlyBlocked);
+  const neighborsOfTarget = neighbors8(grid.target, grid.rows, grid.cols);
+  for (const n of neighborsOfTarget) {
+    const t = findTileAt(grid, n);
+    if (!t) continue;
+    if (reachable.has(t.id)) return null;
+  }
+  return 'trapped';
+}
+
+// After a roll, each ability whose trigger is currently satisfied by the
+// pool gains one charge. Charges accumulate across rolls and are only spent
+// by activating the ability.
+function addChargesFromRoll(
   pool: Die[],
-  currentSize: DieSize,
-): { pool: Die[]; newSize: DieSize; leveled: boolean } {
-  const charAtMax = pool.find(
-    (d) => d.source === 'character' && d.value !== null && d.value === d.size,
-  );
-  if (!charAtMax) return { pool, newSize: currentSize, leveled: false };
-  const next = nextDieSize(currentSize);
-  if (next === currentSize) return { pool, newSize: currentSize, leveled: false };
-  const newPool = pool.map((d) => (d.id === charAtMax.id ? { ...d, size: next } : d));
-  return { pool: newPool, newSize: next, leveled: true };
+  abilities: CharacterAbility[],
+  currentCharges: Record<string, number>,
+): { charges: Record<string, number>; gained: string[] } {
+  const charges = { ...currentCharges };
+  const gained: string[] = [];
+  for (const ability of abilities) {
+    const subset = findSatisfyingSubset(pool, ability.trigger);
+    if (subset) {
+      charges[ability.id] = (charges[ability.id] ?? 0) + 1;
+      gained.push(ability.name);
+    }
+  }
+  return { charges, gained };
 }
 
-function buildHeist(
+function buildAbilityDraft(owned: CharacterAbility[]): AbilityDraftOption[] {
+  const ownedIds = new Set(owned.map((a) => a.id));
+  const available = draftedAbilityPool.filter((a) => !ownedIds.has(a.id));
+  const DRAFT_SIZE = 3;
+
+  let picks: CharacterAbility[];
+  if (available.length >= DRAFT_SIZE) {
+    picks = randomPick(available, DRAFT_SIZE);
+  } else {
+    // Fallback: exhaust available uniques, then allow duplicates from the full pool.
+    const uniques = shuffle(available);
+    const filler = randomPick(draftedAbilityPool, DRAFT_SIZE - uniques.length);
+    picks = [...uniques, ...filler];
+  }
+  return picks.map((a) => ({ ability: a }));
+}
+
+function buildFreshHeist(
+  run: RunState,
   target: HeistTarget,
-  deck: PhaseCard[],
-  characterDieSize: DieSize,
-  characterId: string,
-): { heist: HeistState; deck: PhaseCard[] } {
-  const shuffled = shuffle(deck);
-  const hand = shuffled.slice(0, STARTING_HAND_SIZE);
-  const remaining = shuffled.slice(STARTING_HAND_SIZE);
-  const targetSlot: PhaseSlot = {
-    slotId: `slot-target-${target.id}`,
-    card: {
-      id: target.id,
+  nodeIndex: number,
+): HeistState {
+  const grid = generateGrid(nodeIndex, PHASE_CARDS, TARGETS);
+  // Make sure the target card's name matches the chosen target (generateGrid picks by tier).
+  // We override the target tile's card to the actually-selected target so the map choice is honored.
+  const targetTile = findTileAt(grid, grid.target);
+  if (targetTile) {
+    targetTile.card = {
+      id: `${target.id}#goal-${nodeIndex}`,
       name: target.name,
       type: 'goal',
       requirement: target.requirement,
       momentumDice: target.momentumDice,
       flavor: target.flavor,
-    },
-    status: 'pending',
-    assignedDice: [],
-  };
+    };
+  }
   const charDie: Die = {
-    ...createDie(characterDieSize, 'character', characterId),
+    ...createDie(run.characterDie, 'character', run.character.id),
     value: null,
   };
+  const heatDie: Die = { ...createDie(6, 'heat'), value: null };
+  // Reveal fog around the starting position (start is already revealed).
+  const gridRevealed = revealFogAround(grid, grid.start);
   return {
-    heist: {
-      target,
-      hand,
-      planned: [],
-      targetSlot,
-      activeSlotIndex: 0,
-      pool: [charDie],
-      hasRolled: false,
-      hasRolledEscape: false,
-      needsFlashbackResolution: false,
-      escapeComplications: [],
-      heatCatches: null,
-      log: [`The job: ${target.name}.`],
-    },
-    deck: remaining,
+    grid: gridRevealed,
+    player: grid.start,
+    pool: [charDie],
+    heat: [heatDie],
+    hasRolledThisTurn: false,
+    turn: 1,
+    outcome: null,
+    log: [`The job: ${target.name}.`],
   };
-}
-
-function buildDraft(deck: PhaseCard[]): { newCard: PhaseCard; pairedDeckCardId: string }[] {
-  const pool = PHASE_CARDS.filter((c) => c.type === 'phase');
-  const options: { newCard: PhaseCard; pairedDeckCardId: string }[] = [];
-  const usedPairs = new Set<string>();
-  let attempts = 0;
-  while (options.length < 3 && attempts < 30 && usedPairs.size < deck.length) {
-    attempts += 1;
-    const base = pool[Math.floor(Math.random() * pool.length)];
-    const pair = deck[Math.floor(Math.random() * deck.length)];
-    if (usedPairs.has(pair.id)) continue;
-    usedPairs.add(pair.id);
-    options.push({
-      newCard: { ...base, id: `${base.id}#draft-${options.length}-${Date.now()}` },
-      pairedDeckCardId: pair.id,
-    });
-  }
-  return options;
-}
-
-function getActiveSlot(run: RunState): PhaseSlot | null {
-  if (!run.heist) return null;
-  const { heist } = run;
-  if (heist.activeSlotIndex < heist.planned.length) return heist.planned[heist.activeSlotIndex];
-  if (heist.activeSlotIndex === heist.planned.length) return heist.targetSlot;
-  return null;
 }
 
 interface UIState {
   selectedDiceIds: string[];
-  selectedFlashbackCardId: string | null;
   message: string | null;
 }
 
-const initialUI: UIState = { selectedDiceIds: [], selectedFlashbackCardId: null, message: null };
+const initialUI: UIState = { selectedDiceIds: [], message: null };
 
 interface GameStore extends GameState {
   ui: UIState;
 
   initRun: (characterId: string) => void;
+  selectCharacter: (characterId: string) => void;
   resetToCharacterSelect: () => void;
 
   selectTarget: (targetId: string) => void;
 
-  planCard: (handCardId: string) => void;
-  unplanCard: (slotId: string) => void;
-  endPlanning: () => void;
-
-  rollActivePhase: () => void;
   toggleDieSelection: (dieId: string) => void;
   clearSelection: () => void;
-  assignSelectedToSlot: (slotId: string) => void;
-  activateAbility: () => void;
-  declareTotalBust: () => void;
-  advancePhase: () => void;
-  selectFlashbackHandCard: (cardId: string | null) => void;
-  playFlashback: (targetSlotId: string) => void;
-  finishFlashbackPhase: () => void;
 
-  rollEscape: () => void;
-  assignEscapeSelectedToSlot: (slotId: string) => void;
-  rollHeat: () => void;
-  finalizeEscape: () => void;
+  movePlayer: (tileId: TileId) => void;
+  rollDice: () => void;
+  playerFulfillTile: (tileId: TileId) => void;
+  reroll: () => void;
+  endTurn: () => void;
+  activateAbility: (abilityId: string) => void;
 
   chooseDraft: (optionIndex: number) => void;
   skipDraft: () => void;
@@ -204,19 +283,22 @@ export const useGameStore = create<GameStore>((set, get) => ({
   initRun: (characterId) => {
     const character = CHARACTERS.find((c) => c.id === characterId);
     if (!character) return;
-    const deck = buildStartingDeck();
     const run: RunState = {
       character,
       characterDie: character.startingDie,
-      deck,
+      abilities: [character.ability],
+      abilityCharges: {},
       heat: [],
-      stash: [],
       nodeIndex: 0,
       map: buildMap(),
       heist: null,
       draft: null,
     };
     set({ screen: 'map', run, ui: initialUI });
+  },
+
+  selectCharacter: (characterId) => {
+    get().initRun(characterId);
   },
 
   resetToCharacterSelect: () => {
@@ -229,93 +311,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const node = run.map[run.nodeIndex];
     const target = node.targetChoices.find((t) => t.id === targetId);
     if (!target) return;
-    const { heist, deck } = buildHeist(target, run.deck, run.characterDie, run.character.id);
+    const heist = buildFreshHeist(run, target, run.nodeIndex);
     const nextMap = run.map.map((n, i) =>
       i === run.nodeIndex ? { ...n, chosenTargetId: targetId } : n,
     );
     set({
-      screen: 'heistPlanning',
-      run: { ...run, heist, deck, map: nextMap },
+      screen: 'heist',
+      run: { ...run, heist, map: nextMap },
       ui: initialUI,
-    });
-  },
-
-  planCard: (handCardId) => {
-    const run = get().run;
-    if (!run?.heist) return;
-    const heist = run.heist;
-    const cardIdx = heist.hand.findIndex((c) => c.id === handCardId);
-    if (cardIdx === -1) return;
-    const card = heist.hand[cardIdx];
-    const newPlanned = [...heist.planned, makePhaseSlot(card, heist.planned.length)];
-    const newHand = heist.hand.filter((_, i) => i !== cardIdx);
-    set({ run: { ...run, heist: { ...heist, hand: newHand, planned: newPlanned } } });
-  },
-
-  unplanCard: (slotId) => {
-    const run = get().run;
-    if (!run?.heist) return;
-    const heist = run.heist;
-    const slot = heist.planned.find((s) => s.slotId === slotId);
-    if (!slot) return;
-    const newHand = [...heist.hand, slot.card];
-    const newPlanned = heist.planned.filter((s) => s.slotId !== slotId);
-    set({ run: { ...run, heist: { ...heist, hand: newHand, planned: newPlanned } } });
-  },
-
-  endPlanning: () => {
-    const run = get().run;
-    if (!run?.heist) return;
-    set({
-      screen: 'heistExecution',
-      run: { ...run, heist: { ...run.heist, log: [...run.heist.log, 'Plan locked. Executing.'] } },
-    });
-  },
-
-  rollActivePhase: () => {
-    const run = get().run;
-    if (!run?.heist) return;
-    const heist = run.heist;
-    const active = getActiveSlot(run);
-    if (!active) return;
-    if (heist.hasRolled) return;
-
-    const addedPhaseDice: Die[] = active.card.momentumDice.map((size) => ({
-      ...createDie(size, 'phase', active.card.id),
-      value: null,
-    }));
-    let pool: Die[] = [...heist.pool, ...addedPhaseDice];
-    pool = rollAll(pool);
-
-    const rolledCount = pool.length;
-    const log = [...heist.log, `${active.card.name}: rolled ${rolledCount} dice.`];
-
-    let size = run.characterDie;
-    const firstLevel = applyLevelUp(pool, size);
-    pool = firstLevel.pool;
-    size = firstLevel.newSize;
-    if (firstLevel.leveled) log.push(`★ ${run.character.name}'s die leveled up to d${size}!`);
-
-    let heat = run.heat;
-    const onPlay = active.card.onPlayEffect;
-    if (onPlay) {
-      const res = applyEffect(onPlay, { pool, heat, selectedDiceIds: [] });
-      pool = res.pool;
-      heat = res.heat;
-      log.push(`On play (${active.card.name}): ${onPlay.text}`, ...res.log);
-      const secondLevel = applyLevelUp(pool, size);
-      pool = secondLevel.pool;
-      size = secondLevel.newSize;
-      if (secondLevel.leveled) log.push(`★ ${run.character.name}'s die leveled up to d${size}!`);
-    }
-
-    set({
-      run: {
-        ...run,
-        characterDie: size,
-        heat,
-        heist: { ...heist, pool, hasRolled: true, log },
-      },
     });
   },
 
@@ -335,481 +338,331 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   clearSelection: () => set({ ui: { ...get().ui, selectedDiceIds: [], message: null } }),
 
-  assignSelectedToSlot: (slotId) => {
+  movePlayer: (tileId) => {
     const state = get();
     const run = state.run;
     if (!run?.heist) return;
     const heist = run.heist;
-    const selected = heist.pool.filter((d) => state.ui.selectedDiceIds.includes(d.id));
-    if (selected.length === 0) return;
+    if (heist.outcome) return;
 
-    const allSlots: PhaseSlot[] = [...heist.planned, heist.targetSlot];
-    const slot = allSlots.find((s) => s.slotId === slotId);
-    if (!slot || slot.status === 'fulfilled') return;
-
-    if (!isSubsetSatisfying(selected, slot.card.requirement)) {
-      set({ ui: { ...state.ui, message: `Those dice do not satisfy "${slot.card.name}".` } });
+    const dest = findTileById(heist.grid, tileId);
+    if (!dest) return;
+    if (!isWalkable(dest)) {
+      set({ ui: { ...state.ui, message: 'Can only move onto start or player-fulfilled tiles.' } });
+      return;
+    }
+    if (!isAdjacent(heist.player, dest.pos)) {
+      set({ ui: { ...state.ui, message: 'Target tile is not adjacent.' } });
       return;
     }
 
-    const assignedDice = [...slot.assignedDice, ...selected];
-    const newPool = heist.pool.filter((d) => !state.ui.selectedDiceIds.includes(d.id));
-    const newPlanned = heist.planned.map((s) =>
-      s.slotId === slotId ? { ...s, status: 'fulfilled' as const, assignedDice } : s,
+    const grid = revealFogAround(heist.grid, dest.pos);
+    const log = [...heist.log, `Moved to (${dest.pos.row}, ${dest.pos.col}).`];
+    const outcome = detectOutcome(grid, dest.pos);
+    set({
+      run: {
+        ...run,
+        heist: {
+          ...heist,
+          grid,
+          player: dest.pos,
+          log,
+          outcome: outcome ?? heist.outcome,
+        },
+      },
+      ui: { ...state.ui, message: null },
+    });
+    if (outcome) postOutcome(outcome);
+  },
+
+  rollDice: () => {
+    const state = get();
+    const run = state.run;
+    if (!run?.heist) return;
+    const heist = run.heist;
+    if (heist.outcome) return;
+    if (heist.hasRolledThisTurn) return;
+
+    const pool = rollAll(heist.pool);
+    const heatRolled = rollAll(heist.heat);
+    const log = [...heist.log, `Turn ${heist.turn}: rolled ${pool.length} pool + ${heatRolled.length} heat dice.`];
+
+    // Run heat auto-fill pass immediately after roll.
+    const pass = heatAutoFillPass(heist.grid, heist.player, heatRolled, log);
+
+    // Grant ability charges for any trigger met by the freshly rolled pool.
+    const chargeRes = addChargesFromRoll(pool, run.abilities, run.abilityCharges);
+    if (chargeRes.gained.length > 0) {
+      pass.log.push(`⚡ Charged: ${chargeRes.gained.join(', ')}.`);
+    }
+
+    let outcome = heist.outcome;
+    if (pass.captured) outcome = 'captured';
+    const detected = detectOutcome(pass.grid, heist.player);
+    if (detected && !outcome) outcome = detected;
+
+    set({
+      run: {
+        ...run,
+        abilityCharges: chargeRes.charges,
+        heist: {
+          ...heist,
+          pool,
+          heat: pass.heat,
+          grid: pass.grid,
+          hasRolledThisTurn: true,
+          log: pass.log,
+          outcome: outcome ?? null,
+        },
+      },
+    });
+    if (outcome) postOutcome(outcome);
+  },
+
+  playerFulfillTile: (tileId) => {
+    const state = get();
+    const run = state.run;
+    if (!run?.heist) return;
+    const heist = run.heist;
+    if (heist.outcome) return;
+
+    const tile = findTileById(heist.grid, tileId);
+    if (!tile) return;
+    if (tile.state !== 'revealed' || !isUnfulfilled(tile)) {
+      set({ ui: { ...state.ui, message: 'Tile is not a valid fulfill target.' } });
+      return;
+    }
+    if (!isAdjacent(heist.player, tile.pos)) {
+      set({ ui: { ...state.ui, message: 'Tile is not adjacent.' } });
+      return;
+    }
+    const tileCard = tile.card;
+    if (!tileCard) {
+      set({ ui: { ...state.ui, message: 'Tile has no card.' } });
+      return;
+    }
+
+    // If the player selected dice, use them. Otherwise auto-pick the minimum
+    // satisfying subset from the pool.
+    const manualSelection = heist.pool.filter((d) =>
+      state.ui.selectedDiceIds.includes(d.id),
     );
-    const newTargetSlot =
-      heist.targetSlot.slotId === slotId
-        ? { ...heist.targetSlot, status: 'fulfilled' as const, assignedDice }
-        : heist.targetSlot;
-
-    set({
-      run: {
-        ...run,
-        heist: {
-          ...heist,
-          pool: newPool,
-          planned: newPlanned,
-          targetSlot: newTargetSlot,
-          log: [...heist.log, `Satisfied: ${slot.card.name}.`],
-        },
-      },
-      ui: { ...state.ui, selectedDiceIds: [], message: null },
-    });
-  },
-
-  activateAbility: () => {
-    const state = get();
-    const run = state.run;
-    if (!run?.heist) return;
-    const heist = run.heist;
-    const ability = run.character.ability;
-    const selected = heist.pool.filter((d) => state.ui.selectedDiceIds.includes(d.id));
-    if (!isSubsetSatisfying(selected, ability.trigger)) {
-      set({ ui: { ...state.ui, message: `Selected dice do not meet ${ability.name}'s trigger.` } });
-      return;
-    }
-    const remainingPool = heist.pool.filter((d) => !state.ui.selectedDiceIds.includes(d.id));
-    const res = applyEffect(ability.effect, {
-      pool: remainingPool,
-      heat: run.heat,
-      selectedDiceIds: [],
-    });
-    const level = applyLevelUp(res.pool, run.characterDie);
-    const log = [...heist.log, `⚡ ${ability.name} activated.`, ...res.log];
-    if (level.leveled) log.push(`★ ${run.character.name}'s die leveled up to d${level.newSize}!`);
-    set({
-      run: {
-        ...run,
-        heat: res.heat,
-        characterDie: level.newSize,
-        heist: { ...heist, pool: level.pool, log },
-      },
-      ui: { ...state.ui, selectedDiceIds: [], message: null },
-    });
-  },
-
-  declareTotalBust: () => {
-    const run = get().run;
-    if (!run?.heist) return;
-    const heist = run.heist;
-    const active = getActiveSlot(run);
-    if (!active) return;
-
-    const activeIdx = heist.activeSlotIndex;
-    const returnedDice: Die[] = [];
-    let newlyFailed = 0;
-
-    const newPlanned = heist.planned.map((s, i) => {
-      if (i > activeIdx) return s;
-      if (s.status !== 'failed') newlyFailed += 1;
-      if (s.status === 'fulfilled') returnedDice.push(...s.assignedDice);
-      return { ...s, status: 'failed' as const, assignedDice: [] };
-    });
-
-    let newTarget = heist.targetSlot;
-    if (activeIdx === heist.planned.length) {
-      if (heist.targetSlot.status !== 'failed') newlyFailed += 1;
-      if (heist.targetSlot.status === 'fulfilled') returnedDice.push(...heist.targetSlot.assignedDice);
-      newTarget = { ...heist.targetSlot, status: 'failed' as const, assignedDice: [] };
-    }
-
-    const newDeck = [...run.deck];
-    const drawn: PhaseCard[] = [];
-    for (let i = 0; i < newlyFailed && newDeck.length > 0; i += 1) {
-      drawn.push(newDeck.shift()!);
-    }
-    const newHand = [...heist.hand, ...drawn];
-
-    set({
-      run: {
-        ...run,
-        deck: newDeck,
-        heist: {
-          ...heist,
-          hand: newHand,
-          pool: [...heist.pool, ...returnedDice],
-          planned: newPlanned,
-          targetSlot: newTarget,
-          needsFlashbackResolution: true,
-          log: [
-            ...heist.log,
-            `💥 TOTAL BUST on ${active.card.name}. ${newlyFailed} phase(s) failed. Drew ${drawn.length} card(s). Flashback opportunity.`,
-          ],
-        },
-      },
-      ui: initialUI,
-    });
-  },
-
-  advancePhase: () => {
-    const run = get().run;
-    if (!run?.heist) return;
-    const heist = run.heist;
-    const active = getActiveSlot(run);
-    if (!active) return;
-
-    if (active.status !== 'fulfilled' && active.status !== 'flashbacked') {
-      set({
-        ui: {
-          ...get().ui,
-          message: `${active.card.name} is not satisfied. Fulfill it, flashback on it, or declare Total Bust.`,
-        },
-      });
-      return;
-    }
-
-    let newlyFailed = 0;
-    const newPlanned = heist.planned.map((s, i) => {
-      if (i < heist.activeSlotIndex && s.status === 'pending') {
-        newlyFailed += 1;
-        return { ...s, status: 'failed' as const };
+    let selected: Die[];
+    if (manualSelection.length > 0) {
+      if (!isSubsetSatisfying(manualSelection, tileCard.requirement)) {
+        set({ ui: { ...state.ui, message: `Those dice do not satisfy "${tileCard.name}".` } });
+        return;
       }
-      return s;
-    });
-
-    const newDeck = [...run.deck];
-    const drawn: PhaseCard[] = [];
-    for (let i = 0; i < newlyFailed && newDeck.length > 0; i += 1) {
-      drawn.push(newDeck.shift()!);
+      selected = manualSelection;
+    } else {
+      const auto = findSatisfyingSubset(heist.pool, tileCard.requirement);
+      if (!auto) {
+        set({ ui: { ...state.ui, message: `Pool can't satisfy "${tileCard.name}".` } });
+        return;
+      }
+      selected = auto;
     }
-    const newHand = [...heist.hand, ...drawn];
 
-    const anyFailed =
-      newPlanned.some((s) => s.status === 'failed') || heist.targetSlot.status === 'failed';
+    // Consume selected dice — except character die, which returns to pool unrolled.
+    const selectedIds = new Set(selected.map((d) => d.id));
+    const charSelected = selected.filter((d) => d.source === 'character');
+    const remainingPool = heist.pool
+      .filter((d) => !selectedIds.has(d.id))
+      .concat(charSelected.map((d) => ({ ...d, value: null })));
 
-    if (anyFailed) {
-      set({
-        run: {
-          ...run,
-          deck: newDeck,
-          heist: {
-            ...heist,
-            hand: newHand,
-            planned: newPlanned,
-            needsFlashbackResolution: true,
-            log:
-              newlyFailed > 0
-                ? [
-                    ...heist.log,
-                    `${newlyFailed} prior phase(s) fell through. Drew ${drawn.length} card(s). Flashback opportunity.`,
-                  ]
-                : [...heist.log, 'Flashback opportunity on failed phases.'],
-          },
-        },
-        ui: initialUI,
+    // Push tile momentum dice to pool unrolled.
+    const gained: Die[] = (tileCard.momentumDice ?? []).map((size) => ({
+      ...createDie(size, 'phase', tileCard.id),
+      value: null,
+    }));
+    let pool = [...remainingPool, ...gained];
+    let heat = heist.heat;
+    const log = [...heist.log, `✔ ${tileCard.name} fulfilled.`];
+
+    // Fire onPlayEffect if present.
+    if (tileCard.onPlayEffect) {
+      const effectRes = applyEffect(tileCard.onPlayEffect, {
+        pool,
+        heat,
+        selectedDiceIds: [],
       });
-      return;
+      pool = effectRes.pool;
+      heat = effectRes.heat;
+      log.push(`On play: ${tileCard.onPlayEffect.text}`, ...effectRes.log);
     }
+
+    // Character die level-up if any selected char die maxed.
+    const charWasMaxed = charSelected.some((d) => d.value !== null && d.value === d.size);
+    let characterDie = run.characterDie;
+    if (charWasMaxed) {
+      const next = nextDieSize(characterDie);
+      if (next !== characterDie) {
+        characterDie = next;
+        // resize the character die in pool
+        pool = pool.map((d) =>
+          d.source === 'character' ? { ...d, size: characterDie } : d,
+        );
+        log.push(`★ ${run.character.name}'s die leveled up to d${characterDie}!`);
+      }
+    }
+
+    // Mark tile fulfilled, then move the player onto it and reveal fog around
+    // the new position. (Target tile is the exception — the player wins but
+    // does not "move onto" it, since the target tile is a score, not terrain.)
+    const fulfilledGrid = setTile(heist.grid, tile.id, { state: 'playerFulfilled' });
+    const newPlayer = tile.kind === 'target' ? heist.player : tile.pos;
+    const grid =
+      tile.kind === 'target' ? fulfilledGrid : revealFogAround(fulfilledGrid, newPlayer);
+    if (tile.kind !== 'target') {
+      log.push(`Moved to (${newPlayer.row}, ${newPlayer.col}).`);
+    }
+
+    // Outcome detection.
+    let outcome: HeistState['outcome'] = heist.outcome;
+    if (tile.kind === 'target') outcome = 'won';
+    if (!outcome) outcome = detectOutcome(grid, newPlayer);
 
     set({
       run: {
         ...run,
-        deck: newDeck,
-        heist: { ...heist, hand: newHand, planned: newPlanned },
+        characterDie,
+        heist: {
+          ...heist,
+          grid,
+          pool,
+          heat,
+          log,
+          player: newPlayer,
+          outcome: outcome ?? null,
+        },
       },
-      ui: initialUI,
+      ui: { ...state.ui, selectedDiceIds: [], message: null },
     });
-    get().finishFlashbackPhase();
+    if (outcome) postOutcome(outcome);
   },
 
-  selectFlashbackHandCard: (cardId) => {
-    set({ ui: { ...get().ui, selectedFlashbackCardId: cardId, message: null } });
-  },
-
-  playFlashback: (targetSlotId) => {
+  reroll: () => {
     const state = get();
     const run = state.run;
     if (!run?.heist) return;
     const heist = run.heist;
-    if (!heist.needsFlashbackResolution) return;
+    if (heist.outcome) return;
 
-    const handCardId = state.ui.selectedFlashbackCardId;
-    if (!handCardId) {
-      set({ ui: { ...state.ui, message: 'Pick a hand card to flashback with first.' } });
-      return;
-    }
-    const handCard = heist.hand.find((c) => c.id === handCardId);
-    if (!handCard) return;
+    let pool = rollAll(heist.pool);
+    let heat = rollAll(heist.heat);
+    // Add a fresh d6 to each and roll the new die too.
+    const newPoolDie: Die = { ...createDie(6, 'phase'), value: rollValue(6) };
+    const newHeatDie: Die = { ...createDie(6, 'heat'), value: rollValue(6) };
+    pool = [...pool, newPoolDie];
+    heat = [...heat, newHeatDie];
 
-    const slotInPlanned = heist.planned.find((s) => s.slotId === targetSlotId);
-    const slot =
-      slotInPlanned ?? (heist.targetSlot.slotId === targetSlotId ? heist.targetSlot : null);
-    if (!slot || slot.status !== 'failed') {
-      set({ ui: { ...state.ui, message: 'Flashback can only target a failed phase.' } });
-      return;
-    }
+    const log = [...heist.log, `Reroll: +1 pool die, +1 heat die.`];
+    const pass = heatAutoFillPass(heist.grid, heist.player, heat, log);
 
-    const selected = heist.pool.filter((d) => state.ui.selectedDiceIds.includes(d.id));
-    if (!isSubsetSatisfying(selected, handCard.requirement)) {
-      set({
-        ui: {
-          ...state.ui,
-          message: `${handCard.name}'s requirement is not met by the selected dice.`,
-        },
-      });
-      return;
+    // Reroll counts as a roll for ability-charging purposes.
+    const chargeRes = addChargesFromRoll(pool, run.abilities, run.abilityCharges);
+    if (chargeRes.gained.length > 0) {
+      pass.log.push(`⚡ Charged: ${chargeRes.gained.join(', ')}.`);
     }
 
-    const newHand = heist.hand.filter((c) => c.id !== handCardId);
-    const newPool = heist.pool.filter((d) => !state.ui.selectedDiceIds.includes(d.id));
-    const flashbackDice: Die[] = handCard.momentumDice.map((size) => ({
-      ...createDie(size, 'stash'),
-      value: null,
-    }));
-    const newStash = [...run.stash, ...flashbackDice];
-
-    const updateSlot = (s: PhaseSlot): PhaseSlot =>
-      s.slotId === targetSlotId
-        ? {
-            ...s,
-            status: 'flashbacked',
-            assignedDice: [...s.assignedDice, ...selected],
-            flashbackCardId: handCard.id,
-          }
-        : s;
-    const newPlanned = heist.planned.map(updateSlot);
-    const newTarget = updateSlot(heist.targetSlot);
+    let outcome: HeistState['outcome'] = heist.outcome;
+    if (pass.captured) outcome = 'captured';
+    const detected = detectOutcome(pass.grid, heist.player);
+    if (detected && !outcome) outcome = detected;
 
     set({
       run: {
         ...run,
-        stash: newStash,
+        abilityCharges: chargeRes.charges,
         heist: {
           ...heist,
-          hand: newHand,
-          pool: newPool,
-          planned: newPlanned,
-          targetSlot: newTarget,
-          log: [
-            ...heist.log,
-            `⏪ Flashback: ${handCard.name} covers ${slot.card.name}. +${flashbackDice.length} stash.`,
-          ],
+          pool,
+          heat: pass.heat,
+          grid: pass.grid,
+          log: pass.log,
+          outcome: outcome ?? null,
         },
       },
-      ui: initialUI,
+    });
+    if (outcome) postOutcome(outcome);
+  },
+
+  endTurn: () => {
+    const state = get();
+    const run = state.run;
+    if (!run?.heist) return;
+    const heist = run.heist;
+    if (heist.outcome) return;
+    set({
+      run: {
+        ...run,
+        heist: {
+          ...heist,
+          turn: heist.turn + 1,
+          hasRolledThisTurn: false,
+          log: [...heist.log, `— end of turn ${heist.turn} —`],
+        },
+      },
+      ui: { ...state.ui, selectedDiceIds: [], message: null },
     });
   },
 
-  finishFlashbackPhase: () => {
-    const run = get().run;
+  activateAbility: (abilityId) => {
+    const state = get();
+    const run = state.run;
     if (!run?.heist) return;
     const heist = run.heist;
+    if (heist.outcome) return;
 
-    const charInPool = heist.pool.filter((d) => d.source === 'character');
-    const nonCharUnused = heist.pool.filter((d) => d.source !== 'character');
-
-    const newHeat: Die[] = [...run.heat];
-    for (let i = 0; i < nonCharUnused.length; i += 1) {
-      newHeat.push({ ...createDie(6, 'heat'), value: null });
-    }
-    const heatGained = nonCharUnused.length;
-
-    const returnedFromPlanned = heist.planned.flatMap((s) => s.assignedDice);
-    const returnedFromTarget = heist.targetSlot.assignedDice;
-    const returnedDice = [...returnedFromPlanned, ...returnedFromTarget].map((d) => ({
-      ...d,
-      value: null,
-    }));
-
-    const newPlanned = heist.planned.map((s) => ({ ...s, assignedDice: [] }));
-    const newTargetSlot = { ...heist.targetSlot, assignedDice: [] };
-
-    const preservedCharPool = charInPool.map((d) => ({ ...d, value: null }));
-    const hasChar = preservedCharPool.length > 0 || returnedDice.some((d) => d.source === 'character');
-    const newPool = [...preservedCharPool, ...returnedDice];
-    if (!hasChar) {
-      newPool.push({
-        ...createDie(run.characterDie, 'character', run.character.id),
-        value: null,
-      });
+    const ability = run.abilities.find((a) => a.id === abilityId);
+    if (!ability) {
+      set({ ui: { ...state.ui, message: 'Ability not found.' } });
+      return;
     }
 
-    const nextIdx = heist.activeSlotIndex + 1;
-    const lastIdx = heist.planned.length;
-    const baseLog = [
+    const currentCharges = run.abilityCharges[abilityId] ?? 0;
+    if (currentCharges <= 0) {
+      set({ ui: { ...state.ui, message: `${ability.name} is not charged.` } });
+      return;
+    }
+
+    // Apply the ability's effect. Any currently-selected dice are passed
+    // through as effect targets (for setDieToMax / duplicateDie / etc.).
+    // Non-targeted effects ignore the selection.
+    const effectRes = applyEffect(ability.effect, {
+      pool: heist.pool,
+      heat: heist.heat,
+      selectedDiceIds: state.ui.selectedDiceIds,
+    });
+    const log = [
       ...heist.log,
-      ...(heatGained > 0 ? [`+${heatGained} heat from unused dice.`] : []),
-      ...(returnedDice.length > 0
-        ? [`${returnedDice.length} used die/dice return to the pool for next phase.`]
-        : []),
+      `⚡ Activated ${ability.name}. (${currentCharges - 1} charge${
+        currentCharges - 1 === 1 ? '' : 's'
+      } left)`,
+      `Effect: ${ability.effect.text}`,
+      ...effectRes.log,
     ];
 
-    if (nextIdx > lastIdx) {
-      const escapeComplications: PhaseSlot[] = heist.hand.map((c, i) => ({
-        slotId: `escape-${i}-${c.id}`,
-        card: c,
-        status: 'pending',
-        assignedDice: [],
-      }));
-      set({
-        screen: 'heistEscape',
-        run: {
-          ...run,
-          heat: newHeat,
-          heist: {
-            ...heist,
-            planned: newPlanned,
-            targetSlot: newTargetSlot,
-            pool: [],
-            hasRolled: false,
-            needsFlashbackResolution: false,
-            activeSlotIndex: nextIdx,
-            escapeComplications,
-            log: [...baseLog, 'Execution complete. Time to run.'],
-          },
-        },
-        ui: initialUI,
-      });
-      return;
-    }
+    const outcome: HeistState['outcome'] = heist.outcome ?? detectOutcome(heist.grid, heist.player);
 
     set({
       run: {
         ...run,
-        heat: newHeat,
+        abilityCharges: {
+          ...run.abilityCharges,
+          [abilityId]: currentCharges - 1,
+        },
         heist: {
           ...heist,
-          planned: newPlanned,
-          targetSlot: newTargetSlot,
-          pool: newPool,
-          hasRolled: false,
-          needsFlashbackResolution: false,
-          activeSlotIndex: nextIdx,
-          log: [...baseLog, 'Next phase.'],
+          pool: effectRes.pool,
+          heat: effectRes.heat,
+          log,
+          outcome: outcome ?? null,
         },
       },
-      ui: initialUI,
+      ui: { ...state.ui, message: null },
     });
-  },
-
-  rollEscape: () => {
-    const run = get().run;
-    if (!run?.heist) return;
-    const heist = run.heist;
-    const stashPool: Die[] = run.stash.map((d) => ({ ...d, source: 'stash' }));
-    const rolled = rollAll(stashPool);
-    set({
-      run: {
-        ...run,
-        heist: {
-          ...heist,
-          pool: rolled,
-          hasRolledEscape: true,
-          log: [...heist.log, `Rolled ${rolled.length} escape dice.`],
-        },
-      },
-    });
-  },
-
-  assignEscapeSelectedToSlot: (slotId) => {
-    const state = get();
-    const run = state.run;
-    if (!run?.heist) return;
-    const heist = run.heist;
-    const selected = heist.pool.filter((d) => state.ui.selectedDiceIds.includes(d.id));
-    if (selected.length === 0) return;
-    const slot = heist.escapeComplications.find((s) => s.slotId === slotId);
-    if (!slot || slot.status === 'fulfilled') return;
-    if (!isSubsetSatisfying(selected, slot.card.requirement)) {
-      set({ ui: { ...state.ui, message: `Those dice do not satisfy "${slot.card.name}".` } });
-      return;
-    }
-    const newComplications = heist.escapeComplications.map((s) =>
-      s.slotId === slotId
-        ? { ...s, status: 'fulfilled' as const, assignedDice: [...s.assignedDice, ...selected] }
-        : s,
-    );
-    const newPool = heist.pool.filter((d) => !state.ui.selectedDiceIds.includes(d.id));
-    set({
-      run: { ...run, heist: { ...heist, pool: newPool, escapeComplications: newComplications } },
-      ui: { ...state.ui, selectedDiceIds: [], message: null },
-    });
-  },
-
-  rollHeat: () => {
-    const run = get().run;
-    if (!run?.heist) return;
-    const heist = run.heist;
-    if (heist.heatCatches !== null) return;
-
-    const unresolved = heist.escapeComplications.filter((s) => s.status !== 'fulfilled');
-    if (unresolved.length === 0) {
-      set({
-        run: {
-          ...run,
-          heist: {
-            ...heist,
-            heatCatches: {},
-            log: [...heist.log, 'Clean getaway — no heat roll needed.'],
-          },
-        },
-      });
-      return;
-    }
-
-    const rolled = rollAll(run.heat.map((d) => ({ ...d, source: 'heat' as const })));
-    const catches: Record<string, string[]> = {};
-    const log = [...heist.log, `Rolling ${rolled.length} heat dice.`];
-    for (const comp of unresolved) {
-      const subset = findSatisfyingSubset(rolled, comp.card.requirement);
-      if (subset !== null) {
-        catches[comp.slotId] = subset.map((d) => d.id);
-        log.push(`Heat caught you on ${comp.card.name}.`);
-      }
-    }
-    if (Object.keys(catches).length === 0) log.push('You slipped the heat.');
-
-    set({
-      run: {
-        ...run,
-        heat: rolled,
-        heist: { ...heist, heatCatches: catches, log },
-      },
-    });
-  },
-
-  finalizeEscape: () => {
-    const run = get().run;
-    if (!run?.heist) return;
-    const heist = run.heist;
-    if (heist.heatCatches === null) return;
-
-    const caught = Object.keys(heist.heatCatches).length > 0;
-    const isFinalNode = run.nodeIndex === TOTAL_NODES - 1;
-
-    if (caught) {
-      set({ screen: 'gameOver', run: { ...run, outcome: 'caught' } });
-      return;
-    }
-    if (isFinalNode) {
-      set({ screen: 'gameOver', run: { ...run, outcome: 'won' } });
-      return;
-    }
-    const draft = buildDraft(run.deck);
-    set({
-      screen: 'draft',
-      run: { ...run, draft, stash: heist.pool, heist: null },
-    });
+    if (outcome) postOutcome(outcome);
   },
 
   chooseDraft: (optionIndex) => {
@@ -817,8 +670,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (!run?.draft) return;
     const option = run.draft[optionIndex];
     if (!option) return;
-    const newDeck = run.deck.map((c) => (c.id === option.pairedDeckCardId ? option.newCard : c));
-    set({ run: { ...run, deck: newDeck, draft: null } });
+    set({
+      run: {
+        ...run,
+        abilities: [...run.abilities, option.ability],
+        draft: null,
+      },
+    });
     get().continueToNextNode();
   },
 
@@ -832,8 +690,40 @@ export const useGameStore = create<GameStore>((set, get) => ({
   continueToNextNode: () => {
     const run = get().run;
     if (!run) return;
-    set({ screen: 'map', run: { ...run, nodeIndex: run.nodeIndex + 1 } });
+    set({ screen: 'map', run: { ...run, nodeIndex: run.nodeIndex + 1, heist: null } });
   },
 }));
 
-export { getActiveSlot, TOTAL_NODES };
+// Post-outcome handler (called after mutations set an outcome).
+// Either transitions to gameOver (caught), gameOver (won the run), or to the draft screen.
+function postOutcome(outcome: 'won' | 'captured' | 'trapped') {
+  const state = useGameStore.getState();
+  const run = state.run;
+  if (!run) return;
+
+  if (outcome === 'captured' || outcome === 'trapped') {
+    useGameStore.setState({
+      screen: 'gameOver',
+      run: { ...run, outcome: 'caught' },
+    });
+    return;
+  }
+
+  // won this heist
+  const isFinalNode = run.nodeIndex === TOTAL_NODES - 1;
+  if (isFinalNode) {
+    useGameStore.setState({
+      screen: 'gameOver',
+      run: { ...run, outcome: 'won' },
+    });
+    return;
+  }
+  // move to draft
+  const draft = buildAbilityDraft(run.abilities);
+  useGameStore.setState({
+    screen: 'draft',
+    run: { ...run, draft, heist: null },
+  });
+}
+
+export { TOTAL_NODES };
