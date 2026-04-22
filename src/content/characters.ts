@@ -9,8 +9,8 @@ export const CHARACTERS: Character[] = [
     ability: {
       id: 'backdoor',
       name: 'BACKDOOR',
-      text: 'Consume a PAIR (2 dice with the same value) to set any other pool die to its max.',
-      trigger: { kind: 'xOfAKind', count: 2 },
+      text: 'Rigs a back channel into any system. Spend a charge to set a pool die to its max.',
+      trigger: { kind: 'xOfAKind', count: 3 },
       effect: { id: 'setDieToMax', text: 'Set a die to its max', requiresTarget: 'die' },
     },
   },
@@ -22,8 +22,8 @@ export const CHARACTERS: Character[] = [
     ability: {
       id: 'shapedCharge',
       name: 'SHAPED CHARGE',
-      text: 'Consume 2+ dice summing to 8 or more to reroll every die in the pool.',
-      trigger: { kind: 'sum', op: 'gte', value: 8, minDice: 2 },
+      text: 'Blows the door clean off. Spend a charge to reroll every die in the pool.',
+      trigger: { kind: 'sum', op: 'gte', value: 12, minDice: 2 },
       effect: { id: 'rerollAll', text: 'Reroll all pool dice' },
     },
   },
@@ -35,8 +35,8 @@ export const CHARACTERS: Character[] = [
     ability: {
       id: 'steadyHand',
       name: 'STEADY HAND',
-      text: 'Consume 3 dice in a row (straight of 3) to remove 2 heat dice from the escape pool.',
-      trigger: { kind: 'straight', length: 3 },
+      text: 'Does the hard work calmly, even under the lights. Spend a charge to remove 2 heat.',
+      trigger: { kind: 'straight', length: 4 },
       effect: { id: 'removeHeat', text: 'Remove 2 heat dice', params: { count: 2 } },
     },
   },

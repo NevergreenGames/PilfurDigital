@@ -41,6 +41,13 @@ export function findSumSubset(dice: Die[], op: RequirementOp, target: number, mi
 
   const n = rolled.length;
   let best: Die[] | null = null;
+  let bestSum = 0;
+
+  // Prefer the fewest dice possible (the player wants to spend as little as
+  // they can). Tiebreaker: leave high-value dice in the pool for later —
+  // for gte/gt/eq use the subset with the smallest sum; for lt/lte use the
+  // one with the largest sum (uses up lower-value dice first).
+  const tiebreakPreferLower = op !== 'lt' && op !== 'lte';
 
   for (let mask = 1; mask < 1 << n; mask += 1) {
     const subset: Die[] = [];
@@ -52,9 +59,18 @@ export function findSumSubset(dice: Die[], op: RequirementOp, target: number, mi
       }
     }
     if (subset.length < minDice) continue;
-    if (opPass(op, s, target)) {
-      if (!best || subset.length > best.length) {
+    if (!opPass(op, s, target)) continue;
+
+    if (!best || subset.length < best.length) {
+      best = subset;
+      bestSum = s;
+      continue;
+    }
+    if (subset.length === best.length) {
+      const better = tiebreakPreferLower ? s < bestSum : s > bestSum;
+      if (better) {
         best = subset;
+        bestSum = s;
       }
     }
   }

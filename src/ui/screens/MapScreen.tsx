@@ -17,7 +17,7 @@ export function MapScreen() {
           Node {run.nodeIndex + 1} / {TOTAL_NODES} {isFinal && '· FINAL HEIST'}
         </div>
         <div>
-          Heat: {run.heat.length} · Stash: {run.stash.length} · Deck: {run.deck.length}
+          Heat: {run.heat.length} · Abilities: {run.abilities.length}
         </div>
       </header>
       <h2>Pick the job.</h2>

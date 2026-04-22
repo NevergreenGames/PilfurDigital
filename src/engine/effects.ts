@@ -32,22 +32,39 @@ function rerollDice(dice: Die[]): Die[] {
 
 const handlers: Record<string, EffectHandler> = {
   rerollHighest: (ctx) => {
-    if (ctx.pool.length === 0) return { pool: ctx.pool, heat: ctx.heat, log: [] };
-    const maxVal = Math.max(...ctx.pool.map((d) => d.value ?? -Infinity));
-    const idx = ctx.pool.findIndex((d) => d.value === maxVal);
-    const target = ctx.pool[idx];
+    // Only rolled dice are candidates — unrolled dice (value === null) have
+    // no comparable value and must be skipped to avoid a crash when the pool
+    // contains only just-gained momentum dice after a fulfillment.
+    const rolledIdxs = ctx.pool
+      .map((d, i) => (d.value !== null ? i : -1))
+      .filter((i) => i !== -1);
+    if (rolledIdxs.length === 0) {
+      return { pool: ctx.pool, heat: ctx.heat, log: ['No rolled dice to reroll'] };
+    }
+    let bestIdx = rolledIdxs[0];
+    for (const i of rolledIdxs) {
+      if ((ctx.pool[i].value as number) > (ctx.pool[bestIdx].value as number)) bestIdx = i;
+    }
+    const target = ctx.pool[bestIdx];
     const rerolled = { ...target, value: rollValue(target.size) };
-    const pool = ctx.pool.map((d, i) => (i === idx ? rerolled : d));
+    const pool = ctx.pool.map((d, i) => (i === bestIdx ? rerolled : d));
     return { pool, heat: ctx.heat, log: [`Rerolled highest: ${target.value} → ${rerolled.value}`] };
   },
 
   rerollLowest: (ctx) => {
-    if (ctx.pool.length === 0) return { pool: ctx.pool, heat: ctx.heat, log: [] };
-    const minVal = Math.min(...ctx.pool.map((d) => d.value ?? Infinity));
-    const idx = ctx.pool.findIndex((d) => d.value === minVal);
-    const target = ctx.pool[idx];
+    const rolledIdxs = ctx.pool
+      .map((d, i) => (d.value !== null ? i : -1))
+      .filter((i) => i !== -1);
+    if (rolledIdxs.length === 0) {
+      return { pool: ctx.pool, heat: ctx.heat, log: ['No rolled dice to reroll'] };
+    }
+    let bestIdx = rolledIdxs[0];
+    for (const i of rolledIdxs) {
+      if ((ctx.pool[i].value as number) < (ctx.pool[bestIdx].value as number)) bestIdx = i;
+    }
+    const target = ctx.pool[bestIdx];
     const rerolled = { ...target, value: rollValue(target.size) };
-    const pool = ctx.pool.map((d, i) => (i === idx ? rerolled : d));
+    const pool = ctx.pool.map((d, i) => (i === bestIdx ? rerolled : d));
     return { pool, heat: ctx.heat, log: [`Rerolled lowest: ${target.value} → ${rerolled.value}`] };
   },
 

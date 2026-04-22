@@ -77,26 +77,9 @@ export interface HeistTarget {
 export type Screen =
   | 'characterSelect'
   | 'map'
-  | 'heistPlanning'
-  | 'heistExecution'
-  | 'heistEscape'
+  | 'heist'
   | 'draft'
   | 'gameOver';
-
-export type PhaseSlotStatus =
-  | 'pending'
-  | 'active'
-  | 'fulfilled'
-  | 'failed'
-  | 'flashbacked';
-
-export interface PhaseSlot {
-  slotId: string;
-  card: PhaseCard;
-  status: PhaseSlotStatus;
-  assignedDice: Die[];
-  flashbackCardId?: string;
-}
 
 export interface MapNode {
   index: number;
@@ -104,36 +87,62 @@ export interface MapNode {
   chosenTargetId?: string;
 }
 
-export interface DraftOption {
-  newCard: PhaseCard;
-  pairedDeckCardId: string;
+// --- Grid / Heist types (new) ---
+
+export type Position = { row: number; col: number };
+export type TileKind = 'start' | 'wall' | 'phase' | 'target';
+export type TileState = 'hidden' | 'revealed' | 'playerFulfilled' | 'heatFulfilled';
+export type TileId = string;
+export type HeistOutcome = 'won' | 'captured' | 'trapped';
+
+export interface Tile {
+  id: TileId;
+  pos: Position;
+  kind: TileKind;
+  state: TileState;
+  card: PhaseCard | null;
+  tier: 0 | 1 | 2 | 3;
+}
+
+export interface Grid {
+  rows: 7;
+  cols: 7;
+  tiles: Tile[];
+  start: Position;
+  target: Position;
 }
 
 export interface HeistState {
-  target: HeistTarget;
-  hand: PhaseCard[];
-  planned: PhaseSlot[];
-  targetSlot: PhaseSlot;
-  activeSlotIndex: number;
+  grid: Grid;
+  player: Position;
   pool: Die[];
-  hasRolled: boolean;
-  hasRolledEscape: boolean;
-  needsFlashbackResolution: boolean;
-  escapeComplications: PhaseSlot[];
-  heatCatches: Record<string, string[]> | null;
+  heat: Die[];
+  hasRolledThisTurn: boolean;
+  turn: number;
+  outcome: HeistOutcome | null;
   log: string[];
 }
+
+export interface AbilityDraftOption {
+  ability: CharacterAbility;
+}
+
+// Kept as alias for back-compat with any callers still using the old name.
+export type DraftOption = AbilityDraftOption;
 
 export interface RunState {
   character: Character;
   characterDie: DieSize;
-  deck: PhaseCard[];
+  abilities: CharacterAbility[];
+  // Charges accumulate every time a roll (rollDice or reroll) produces a
+  // pool satisfying the ability's trigger. Charges are spent by activating
+  // the ability; they persist across heists until used.
+  abilityCharges: Record<string, number>;
   heat: Die[];
-  stash: Die[];
   nodeIndex: number;
   map: MapNode[];
   heist: HeistState | null;
-  draft: DraftOption[] | null;
+  draft: AbilityDraftOption[] | null;
   outcome?: 'won' | 'caught';
 }
 
