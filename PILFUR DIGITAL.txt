@@ -1,0 +1,214 @@
+﻿________________
+
+
+PILFUR
+A Semi-Cooperative Heist Dice Game
+________________
+
+
+Overview
+Pilfur is a semi-cooperative survival game about planning and executing an impossible heist. Players work together to pull off a single daring job—but when things go wrong, each player must still escape on their own.
+Every game of Pilfur represents one heist.
+The crew plans boldly, momentum builds, mistakes compound, and the getaway decides who makes it out.
+Players may all win.
+Some may win while others are caught.
+It is also possible for everyone to lose.
+Winning and losing are strictly binary. There is no score.
+________________
+
+
+Game Information
+* Players: 1–4
+* Play Time: 30–45 minutes
+* Genre: Light strategy, narrative dice game
+* Core Themes: Heists, improvisation, pressure, consequences
+________________
+
+
+Components
+* 10 Heist Target Cards
+* 1 Phase Card Deck
+* Character Cards (one per player)
+* Dice
+   * d4, d6, and d20 (used as momentum dice)
+   * Red d6s (used as heat dice)
+________________
+
+
+Dice Types
+* Momentum Dice
+   * Any d4, d6, or d20
+   * Used during the heist and escape
+   * Drawn from a shared supply
+   * Considered infinite—use substitutes if needed
+* Heat Dice
+   * Red d6s only
+   * Shared pool
+   * No maximum limit
+________________
+
+
+Setup
+1. Choose Characters
+Each player selects a character card and reads its ability to the group.
+2. Deal Phase Cards
+Take 12 phase cards and deal them evenly among all players.
+This is each player’s starting hand.
+3. Draw the Heist Target
+Randomly draw 1 heist target card and place it face up in the center of the table.
+4. Determine First Player
+Randomly choose a starting player. Play proceeds clockwise.
+________________
+
+
+The Heist Structure
+Each game of Pilfur proceeds in three phases:
+   1. Planning the Heist
+   2. Executing the Heist
+   3. The Escape
+________________
+
+
+PLANNING THE HEIST
+The planning phase establishes the plan—bold, detailed, and doomed to go wrong.
+________________
+
+
+Declare the Target
+The starting player reads aloud:
+“We’re going to steal the [target name].”
+Read any special rules on the heist target card.
+________________
+
+
+Build the Plan
+Starting with the first player and proceeding clockwise, each player must do one of the following on their turn:
+   * Play one phase card from their hand face up into the center of the table, describing how it contributes to the plan.
+Phase cards represent steps in the heist such as distractions, preparations, or obstacles dealt with in advance.
+Players may not skip their turn.
+________________
+
+
+Ending the Plan
+Instead of playing a phase card, a player may end planning by declaring:
+“Then I steal the [target name].”
+This immediately ends the planning phase.
+   * Other players may not object.
+   * If all phase cards have been played, planning must end.
+________________
+
+
+EXECUTING THE HEIST
+The plan is put into motion—one phase at a time.
+________________
+
+
+Turn Order
+Execution proceeds in the same clockwise order as planning.
+Each player resolves their own phase card when it is their turn.
+________________
+
+
+Resolving a Phase
+On your turn:
+   1. Add your phase card’s momentum dice to the pool
+   2. Roll All Momentum Dice in the Pool
+   3. Check the Requirement
+Compare the roll/dice result to your phase card’s requirement:
+      * Examples include:
+      * X of a kind
+      * = N
+      * N+
+      * < N
+      4. Place dice on your phase card to fulfill its requirement
+      * If you satisfied the requirement on your phase card, place the remaining unused dice on the phase cards from previous rounds, completing as many of their requirements as you can.
+      * If you didn’t satisfy your card’s requirement this phase was a total bust! (see Total Bust section)
+      5. Resolve the Outcome
+      * Whether you succeed or fail, play passes to the next player.
+      * After the roll, all momentum dice remain in the pool.
+________________
+
+
+Failure and Flashbacks
+If a phase roll does not meet its requirement, this is a Total Bust! This phase and all previous rounds’ phase cards are considered failed (each of those players draws a phase card) and all momentum dice are left in the pool and considered unused.
+If a phase roll met it’s requirement but didn’t meet all of the previous phase card requirements, the unmet phases are considered failed. Those players each draw a card.
+
+Either way, players then can play flashbacks on any of the failed phase cards.
+________________
+
+
+Flashback Opportunity
+Starting with the player to the active player’s left and proceeding clockwise (ending with the active player), any player may attempt a flashback.
+To flashback:
+      * Play a phase card from your hand onto an unfulfilled phase card.
+      * The flashback succeeds only if the already-rolled dice meet that card’s requirement.
+      * Then add the new flashback card’s dice to the pool (the previous card’s dice remain in the pool as well)
+Important Rules:
+      * Only one flashback may be attempted per failed phase card.
+      * Flashbacks occur after seeing the dice.
+      * Dice are not rerolled.
+________________
+
+
+If a Flashback Succeeds
+      * The flashback card’s dice are added to the flashing player’s private stash.
+      * The dice used by the flashback are placed on top of it and no longer considered “unused”
+________________
+
+
+If There are any Remaining Momentum Dice
+      * Add 1 heat die per unused momentum die to the escape pool.
+________________
+
+
+Heist Completion
+Once all planned phases and the final target are resolved, proceed to the escape.
+________________
+
+
+THE ESCAPE
+The job is done. Now everyone runs.
+________________
+
+
+Step 1: Reveal Complications
+Each player reveals all phase cards remaining in their hand.
+These cards are now escape complications along that player’s personal escape route.
+________________
+
+
+Step 2: Resolve Escape Complications
+Each player:
+      1. Rolls all dice in their private stash.
+      2. Assigns rolled dice to their revealed complications.
+      * Dice used to complete one complication cannot be used on another.
+      * Complications can be completed in any order.
+      3. Dice that are not used may be given to another player, but only if:
+      * The giving player has resolved all of their own complications.
+      * The transfer happens before heat is rolled.
+________________
+
+
+Step 3: Clean Getaway Check
+      * If all players resolve all of their escape complications:
+      * The entire crew gets out clean.
+      * All players win.
+      * The game ends.
+________________
+
+
+Step 4: Roll the Heat
+If any player has unresolved escape complications:
+      1. Roll the entire heat dice pool once.
+      2. For each player with unresolved complications:
+      * If the heat dice satisfy any one of that player’s unresolved complication requirements, that player is caught and loses.
+Players without unresolved complications are safe.
+Multiple players may be caught.
+________________
+
+
+End of the Game
+      * Any player who is not caught wins.
+      * Any player who is caught loses.
+      * If all players are caught, everyone loses.
+________________

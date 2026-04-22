@@ -1,0 +1,38 @@
+quantity,name,Type,Effect,BG_Image,Requirement_1_NUM,req_text_size,Requirement_1_IMAGE,Contributor_Reward_1,Contributor_Reward_2,Contributor_Reward_3
+1,AIR DUCT,phase,REROLL YOUR HIGHEST DICE,,<3,155,,{{ images.d6.url }},,
+1,BLACKOUT,phase,REPLACE ALL <d6/> WITH <d4/>,,=5,155,,{{ images.d4.url }},,
+1,BODYGUARD,phase,SET A DIE TO ITS MAX,,12+,155,,{{ images.d6.url }},{{ images.d6.url }},
+1,DEMOLITIONIST,character,ADD A HEAT DICE TO REROLL YOUR DICE,,,155,,,,
+1,DISABLE CAMS,phase,REROLL,,=7,155,,{{ images.d6.url }},{{ images.d6.url }},
+1,ELECTRIC FENCE,phase,,,"4 IN
+A ROW",80,,{{ images.d4.url }},{{ images.d4.url }},{{ images.d4.url }}
+1,ELEVATOR SHAFT,phase,REMOVE ALL DICE THAT ROLLED A 1,,"3 IN
+A ROW",80,,{{ images.d6.url }},{{ images.d6.url }},
+1,"GETAWAY 
+DRIVER",character,REROLL EFFECTS CAN INCLUDE HEAT DICE,,,155,,,,
+1,"HACK A
+TURRET",phase,,,=4,155,,{{ images.d6.url }},,
+1,HACKER,character,DICE THAT ROLL THEIR MAX CAN BE SET TO ANY NUMBER,,,155,,,,
+1,"HIGHJACK 
+A TANK",phase,,,"3 OF A
+KIND",80,,{{ images.d20.url }},,
+1,"JUMP THE
+FENCE",phase,,,PAIR,80,,{{ images.d4.url }},{{ images.d4.url }},
+1,LASERS!,phase,,,15+,155,,{{ images.d20.url }},,
+1,MOTION SENSORS,phase,MUST USE 2 DICE,,<6,155,,{{ images.d6.url }},{{ images.d6.url }},
+1,NETSEC,phase,,,=10,155,,{{ images.d6.url }},{{ images.d4.url }},
+1,"NIGHT 
+VISION",phase,SET 2 DIE TO 1,,8+,155,,{{ images.d4.url }},{{ images.d6.url }},
+1,PET GUARD DOG,phase,REROLL YOUR <d4/>,,15+,155,,{{ images.d4.url }},{{ images.d6.url }},{{ images.d6.url }}
+1,PICK LOCK,phase,,,PAIR,80,,{{ images.d4.url }},{{ images.d4.url }},
+1,PRESSURE PLATES,phase,MUST USE 3 DICE,,<7,80,,{{ images.d4.url }},{{ images.d4.url }},{{ images.d4.url }}
+1,PRISON BREAK,goal,MUSE USE 5 DICE,,<10,155,,{{ images.d6.url }},{{ images.d6.url }},{{ images.d6.url }}
+1,RETINA SCANNER,phase,,,=1,155,,{{ images.d4.url }},,
+1,SKYLIGHT REPEL,phase,REROLL YOUR LOWEST DICE,,12+,155,,{{ images.d6.url }},{{ images.d6.url }},
+1,STRATEGIST,character,YOU CAN USE AN EFFECT FROM A FUTURE PHASE CARD,,,155,,,,
+1,THE MOON,goal,"STACK YOU DICE INTO A TOWER FROM LOWEST TO HIGHEST. MULTIPLY THE TOP DIE FOR EACH UNDERNEATH IT
+
+ONLY COUNT THE TOP DIE",,25+,155,,{{ images.d6.url }},{{ images.d6.url }},{{ images.d6.url }}
+1,"VAULT OF
+GOLD",goal,REROLL,,"5 OF A
+KIND",80,,{{ images.d6.url }},{{ images.d6.url }},{{ images.d6.url }}
