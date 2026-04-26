@@ -1,5 +1,6 @@
 import { CSSProperties, MouseEvent as ReactMouseEvent } from 'react';
-import { PhaseCard, Requirement, Tile } from '../../engine/types';
+import { Die, PhaseCard, Requirement, Tile } from '../../engine/types';
+import { DieGlyph } from './DieGlyph';
 
 // Track A: Icon/glyph mapping. Keyed on card id (from PHASE_CARDS + target ids).
 // Falls back to a heuristic based on the card name, then a generic icon.
@@ -86,6 +87,13 @@ interface Props {
   onClick?: () => void;
   onHoverStart?: (rect: DOMRect) => void;
   onHoverEnd?: () => void;
+  // When set, the tile renders as still 'revealed' even if its underlying
+  // state is heatFulfilled or playerFulfilled — used to delay the lock /
+  // check animation until the flying-dice animation reaches the tile.
+  pendingFill?: 'heat' | 'player';
+  // Reserved heat dice currently looming over this tile (intent in flight,
+  // about to fire on End Turn unless the player preempts).
+  loomingDice?: Die[];
 }
 
 export function TileView({
@@ -98,22 +106,31 @@ export function TileView({
   onClick,
   onHoverStart,
   onHoverEnd,
+  pendingFill,
+  loomingDice,
 }: Props) {
-  const classes = ['hg-tile', `hg-tile--${tile.kind}`, `hg-tile--${tile.state}`];
+  // Effective state for rendering. If a fill is pending, keep the tile
+  // looking revealed while the dice-fly animation plays.
+  const effectiveState = pendingFill ? 'revealed' : tile.state;
+
+  const classes = ['hg-tile', `hg-tile--${tile.kind}`, `hg-tile--${effectiveState}`];
   if (canMove) classes.push('hg-tile--movable');
   if (canFulfill) classes.push('hg-tile--fulfillable');
   if (willSucceed) classes.push('hg-tile--will-succeed');
+  if (pendingFill === 'heat') classes.push('hg-tile--heat-incoming');
+  if (pendingFill === 'player') classes.push('hg-tile--player-incoming');
+  if (loomingDice && loomingDice.length > 0) classes.push('hg-tile--threatened');
 
   const interactive = canMove || canFulfill;
 
   // Fog rendering: hidden tiles are obscured, but the target tile's glyph peeks through.
-  const isHidden = tile.state === 'hidden';
+  const isHidden = effectiveState === 'hidden';
   const showFog = isHidden;
   const peekTarget = isHidden && isTargetTile && tile.card;
 
   // Only show the full card (icon / requirement / reward dice) on revealed,
   // unfulfilled tiles. Fulfilled tiles are just footprints per spec.
-  const showCardDetails = tile.state === 'revealed' && tile.card !== null;
+  const showCardDetails = effectiveState === 'revealed' && tile.card !== null;
 
   const handleMouseEnter = (e: ReactMouseEvent<HTMLDivElement>) => {
     if (!onHoverStart) return;
@@ -131,6 +148,7 @@ export function TileView({
       style={style}
       role={interactive ? 'button' : undefined}
       aria-label={tile.card ? tile.card.name : tile.kind}
+      data-tile-id={tile.id}
     >
       {/* Revealed content */}
       {showCardDetails && tile.card && (
@@ -144,8 +162,8 @@ export function TileView({
           )}
           <div className="hg-tile-dice">
             {tile.card.momentumDice.map((size, i) => (
-              <span key={i} className={`hg-die-badge hg-die-d${size}`}>
-                d{size}
+              <span key={i} className={`hg-tile-die hg-tile-die-d${size}`}>
+                <DieGlyph size={size} px={16} />
               </span>
             ))}
           </div>
@@ -180,6 +198,11 @@ export function TileView({
           <div className="hg-pawn-inner">@</div>
         </div>
       )}
+      {/* Looming heat dice are rendered by GridView in a layer above
+          .hg-viewport so they can extend past the viewport's clip rectangle
+          when a threatened tile is at the edge of the visible window. The
+          `loomingDice` prop is consumed only to drive the `--threatened`
+          class for the pulsing tile outline (see classes[] above). */}
     </div>
   );
 }

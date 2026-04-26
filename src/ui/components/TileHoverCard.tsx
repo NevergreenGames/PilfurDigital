@@ -1,6 +1,7 @@
 import { CSSProperties, useLayoutEffect, useRef, useState } from 'react';
 import { PhaseCard } from '../../engine/types';
 import { describeRequirement } from '../../engine/requirements';
+import { DieGlyph } from './DieGlyph';
 
 interface Props {
   card: PhaseCard;
@@ -57,7 +58,7 @@ export function TileHoverCard({ card, anchor }: Props) {
           <div className="hg-hover-card-dice-label">Reward</div>
           <div className="hg-hover-card-dice">
             {card.momentumDice.map((size, i) => (
-              <span key={i} className={`die-chip die-d${size}`}>d{size}</span>
+              <DieGlyph key={i} size={size} px={20} />
             ))}
           </div>
         </>

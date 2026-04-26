@@ -1,4 +1,5 @@
 import { useGameStore } from '../../state/gameStore';
+import { DieGlyph } from '../components/DieGlyph';
 
 export function GameOverScreen() {
   const run = useGameStore((s) => s.run);
@@ -29,7 +30,7 @@ export function GameOverScreen() {
       <h1>{headline}</h1>
       <p className="subtitle">{subtitle}</p>
       {!won && <p className="muted">{lossFlavor}</p>}
-      <p>Final character die: d{run.characterDie}</p>
+      <p>Final character die: <DieGlyph size={run.characterDie} px={20} /></p>
       <p className="muted">
         Abilities collected: {run.abilities.length}
       </p>

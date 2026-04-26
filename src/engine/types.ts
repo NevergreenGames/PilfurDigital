@@ -52,7 +52,11 @@ export interface PhaseCard {
 export interface CharacterAbility {
   id: string;
   name: string;
+  // Primary mechanics line. Shown most prominently on the ability card.
+  // Pattern: "Spend a charge to <effect>."
   text: string;
+  // Optional narrative / character-voice line. Shown muted, below the trigger.
+  flavor?: string;
   trigger: Requirement;
   effect: EffectSpec;
 }
@@ -112,15 +116,54 @@ export interface Grid {
   target: Position;
 }
 
+// Event payload emitted by rollDice / reroll so the UI can animate the
+// heat-resolution sequence (rolled heat dice → tiles that got heat-filled).
+// Cleared when any other action runs.
+export interface HeatFillEvent {
+  tileId: TileId;
+  tileName: string;
+  consumedIds: string[];      // heat die ids consumed by the fill
+  gainedSizes: DieSize[];     // momentum dice that became new (unrolled) heat
+}
+
+// A pending heat fulfillment. Reserved on roll; either resolves on End Turn
+// (tile becomes heatFulfilled, dice consumed) or cancels if the player
+// preempts by fulfilling the tile themselves (dice return to heat).
+export interface HeatIntent {
+  tileId: TileId;
+  tileName: string;
+  reservedDice: Die[];        // moved out of heist.heat — held until resolution
+  gainedSizes: DieSize[];     // dice that will be added to heat IF intent fires
+}
+export interface HeatResolution {
+  rolledDice: Die[];          // snapshot of rolled heat dice BEFORE consumption
+  fills: HeatFillEvent[];     // in deterministic order (tile row*7+col)
+  capturedOnTarget: boolean;  // true iff the target tile was heat-fulfilled
+}
+
+// Event payload for the most-recent player fulfillment, so the UI can
+// animate consumed pool dice flying to the tile before it locks as
+// player-fulfilled. Cleared when the next player-action fires.
+export interface PlayerFulfillEvent {
+  tileId: TileId;
+  tileName: string;
+  consumedDice: Die[];        // snapshot (pre-consumption) — for fly animation
+  gainedSizes: DieSize[];
+  movedTo: Position | null;   // null when fulfilling the target (stays put)
+}
+
 export interface HeistState {
   grid: Grid;
   player: Position;
   pool: Die[];
-  heat: Die[];
+  heat: Die[];                 // unreserved heat dice
+  heatIntents: HeatIntent[];   // pending heat fulfillments (looming over tiles)
   hasRolledThisTurn: boolean;
   turn: number;
   outcome: HeistOutcome | null;
   log: string[];
+  lastHeatResolution: HeatResolution | null;
+  lastPlayerFulfill: PlayerFulfillEvent | null;
 }
 
 export interface AbilityDraftOption {

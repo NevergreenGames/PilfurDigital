@@ -1,5 +1,6 @@
 import { useGameStore, TOTAL_NODES } from '../../state/gameStore';
 import { describeRequirement } from '../../engine/requirements';
+import { DieGlyph } from '../components/DieGlyph';
 
 export function MapScreen() {
   const run = useGameStore((s) => s.run);
@@ -10,8 +11,9 @@ export function MapScreen() {
   return (
     <div className="screen map">
       <header className="run-header">
-        <div>
-          <strong>{run.character.name}</strong> · d{run.characterDie}
+        <div className="run-header-char">
+          <strong>{run.character.name}</strong>
+          <DieGlyph size={run.characterDie} px={22} />
         </div>
         <div>
           Node {run.nodeIndex + 1} / {TOTAL_NODES} {isFinal && '· FINAL HEIST'}
@@ -31,7 +33,9 @@ export function MapScreen() {
             {t.flavor && <div className="target-flavor">{t.flavor}</div>}
             <div className="target-req">Requirement: {describeRequirement(t.requirement)}</div>
             <div className="target-dice">
-              Momentum: {t.momentumDice.map((s) => `d${s}`).join(', ')}
+              {t.momentumDice.map((s, i) => (
+                <DieGlyph key={i} size={s} px={24} />
+              ))}
             </div>
             <button className="primary" onClick={() => selectTarget(t.id)}>
               PLAN THIS JOB

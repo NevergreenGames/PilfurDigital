@@ -1,6 +1,7 @@
 import { CHARACTERS } from '../../content/characters';
 import { describeRequirement } from '../../engine/requirements';
 import { useGameStore } from '../../state/gameStore';
+import { DieGlyph, withDieGlyphs } from '../components/DieGlyph';
 
 export function CharacterSelectScreen() {
   const initRun = useGameStore((s) => s.initRun);
@@ -11,13 +12,18 @@ export function CharacterSelectScreen() {
       <div className="character-grid">
         {CHARACTERS.map((c) => (
           <div key={c.id} className="character-card">
-            <div className="character-name">{c.name}</div>
-            <div className="character-die-chip">starts with d{c.startingDie}</div>
+            <div className="character-header">
+              <div className="character-name">{c.name}</div>
+              <DieGlyph size={c.startingDie} px={36} />
+            </div>
             {c.flavor && <div className="character-flavor">{c.flavor}</div>}
             <div className="character-ability">
               <div className="ability-name">{c.ability.name}</div>
-              <div className="ability-trigger">Trigger: {describeRequirement(c.ability.trigger)}</div>
-              <div className="ability-text">{c.ability.text}</div>
+              <div className="ability-effect">{withDieGlyphs(c.ability.text)}</div>
+              <div className="ability-trigger">
+                <span className="ability-trigger-label">Charges on</span>{' '}
+                {describeRequirement(c.ability.trigger)}
+              </div>
             </div>
             <button className="primary" onClick={() => initRun(c.id)}>
               CHOOSE

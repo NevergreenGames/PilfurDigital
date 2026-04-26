@@ -1,12 +1,20 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useGameStore, TOTAL_NODES } from '../../state/gameStore';
-import { Tile } from '../../engine/types';
+import { HeatIntent, PlayerFulfillEvent, Tile } from '../../engine/types';
 import { findSatisfyingSubset, isSubsetSatisfying } from '../../engine/requirements';
+import { effectTargetMin } from '../../engine/effects';
 import { GridView } from '../components/GridView';
 import { DicePoolView } from '../components/DicePoolView';
 import { HeatTrayView } from '../components/HeatTrayView';
 import { AbilityListView } from '../components/AbilityListView';
+import { HeatResolutionBanner } from '../components/HeatResolutionBanner';
+import { DieGlyph } from '../components/DieGlyph';
+import { DiceFlyOverlay, FlyingDieInstance } from '../components/DiceFlyOverlay';
+import { HeistEndOverlay } from '../components/HeistEndOverlay';
 import '../heist-grid.css';
+
+const HEAT_STAGE_MS = 700;
+const FLY_MS = 480;
 
 function isWalkable(t: Tile): boolean {
   return t.kind === 'start' || t.state === 'playerFulfilled';
@@ -24,10 +32,8 @@ export function HeistScreen() {
   const rollDiceAction = useGameStore((s) => s.rollDice);
   const playerFulfillTile = useGameStore((s) => s.playerFulfillTile);
   const reroll = useGameStore((s) => s.reroll);
-  const endTurn = useGameStore((s) => s.endTurn);
   const activateAbility = useGameStore((s) => s.activateAbility);
-  const continueToNextNode = useGameStore((s) => s.continueToNextNode);
-  const resetToCharacterSelect = useGameStore((s) => s.resetToCharacterSelect);
+  const proceedFromOutcome = useGameStore((s) => s.proceedFromOutcome);
 
   if (!run?.heist) return null;
   const { heist } = run;
@@ -36,6 +42,54 @@ export function HeistScreen() {
   const isFinalNode = run.nodeIndex === TOTAL_NODES - 1;
 
   const selectedDice = heist.pool.filter((d) => ui.selectedDiceIds.includes(d.id));
+
+  // Targeted-ability flow: when the player clicks Activate on an ability whose
+  // effect needs target dice, we enter a "waiting" mode. The button on that
+  // ability becomes Cancel; selecting the right number of target dice
+  // auto-fires the activation. Pre-selecting targets before clicking Activate
+  // skips the wait entirely.
+  const [waitingAbilityId, setWaitingAbilityId] = useState<string | null>(null);
+
+  const onActivateAbility = useCallback(
+    (abilityId: string) => {
+      if (!run) return;
+      // If the user clicks the button while waiting on this same ability,
+      // it's a Cancel.
+      if (waitingAbilityId === abilityId) {
+        setWaitingAbilityId(null);
+        return;
+      }
+      const ability = run.abilities.find((a) => a.id === abilityId);
+      if (!ability) return;
+      const min = effectTargetMin(ability.effect);
+      const currentSelection = run.heist
+        ? run.heist.pool.filter((d) => ui.selectedDiceIds.includes(d.id))
+        : [];
+      if (min > 0 && currentSelection.length < min) {
+        setWaitingAbilityId(abilityId);
+        return;
+      }
+      activateAbility(abilityId);
+      setWaitingAbilityId(null);
+    },
+    [run, ui.selectedDiceIds, waitingAbilityId, activateAbility],
+  );
+
+  // While waiting on a targeted ability, fire as soon as the player has
+  // selected enough target dice.
+  useEffect(() => {
+    if (!waitingAbilityId || !run) return;
+    const ability = run.abilities.find((a) => a.id === waitingAbilityId);
+    if (!ability) {
+      setWaitingAbilityId(null);
+      return;
+    }
+    const min = effectTargetMin(ability.effect);
+    if (selectedDice.length >= min) {
+      activateAbility(waitingAbilityId);
+      setWaitingAbilityId(null);
+    }
+  }, [waitingAbilityId, selectedDice, run, activateAbility]);
 
   // Hover state for pool-preview: which pool dice would be consumed and which
   // dice would be added on click-to-fulfill.
@@ -84,23 +138,252 @@ export function HeistScreen() {
     }
   };
 
-  // Outcome banner continue-action:
-  // - won non-final: continueToNextNode — but the store also auto-transitions
-  //   to draft via postOutcome, so by the time the banner shows we'd be on the
-  //   draft screen. The banner is mostly for captured/trapped/won-final.
-  const onContinue = () => {
-    if (outcome === 'won' && !isFinalNode) {
-      continueToNextNode();
-    } else {
-      resetToCharacterSelect();
+  // ────────────────────────────────────────────────────────────────────────
+  // Dice-fly animation orchestration.
+  //
+  // Heat now reserves dice as "intents" (loom over tiles). The fly system:
+  //   • forward fly — when a new intent appears, banner dice fly to the tile
+  //     and arrive as looming dice (rendered by TileView while the intent
+  //     persists AND `arrivedHeatIntents` includes the tileId).
+  //   • reverse fly — when an intent disappears AND the tile is NOT now
+  //     heatFulfilled (i.e. the player preempted, or a reroll wiped intents),
+  //     looming dice fly back to the heat tray.
+  //   • end-turn lock — intent disappears AND tile becomes heatFulfilled:
+  //     no fly; the tile's CSS lock-in keyframe plays.
+  // Player fulfill: dice fly from pool to the tile (player-incoming).
+  // ────────────────────────────────────────────────────────────────────────
+
+  const [arrivedHeatIntents, setArrivedHeatIntents] = useState<Set<string>>(new Set());
+  const [pendingPlayerTile, setPendingPlayerTile] = useState<string | null>(null);
+  const [flyingDice, setFlyingDice] = useState<FlyingDieInstance[]>([]);
+  const prevIntentsRef = useRef<HeatIntent[]>([]);
+  const lastHeatResRef = useRef<unknown>(null);
+  const handledPlayerRef = useRef<PlayerFulfillEvent | null>(null);
+
+  // Diff intents on each render to fire forward/reverse flies appropriately.
+  // A "new roll" (lastHeatResolution identity change) replaces intents
+  // wholesale — we forward-fly the new ones and don't reverse-fly stale ones.
+  // Otherwise (preempt / end-turn), we diff and reverse-fly removed intents.
+  useEffect(() => {
+    const res = heist.lastHeatResolution;
+    const isNewRoll = !!res && res !== lastHeatResRef.current;
+    if (isNewRoll) lastHeatResRef.current = res;
+
+    const prev = prevIntentsRef.current;
+    const curr = heist.heatIntents;
+    const prevByTile = new Map(prev.map((i) => [i.tileId, i] as const));
+    const currTileIds = new Set(curr.map((i) => i.tileId));
+
+    const timers: number[] = [];
+
+    if (isNewRoll) {
+      // Drop any lingering arrived flags from the previous turn — looming
+      // dice from the prior generation are no longer relevant.
+      setArrivedHeatIntents(new Set());
     }
-  };
+
+    // Newly added intents — forward fly + scheduled arrival.
+    // On a new roll, every current intent counts as new (we don't compare
+    // identity since the underlying dice are freshly rolled).
+    const added = isNewRoll
+      ? curr
+      : curr.filter((i) => !prevByTile.has(i.tileId));
+    added.forEach((intent, i) => {
+      timers.push(
+        window.setTimeout(() => {
+          const tileEl = document.querySelector(
+            `[data-tile-id="${intent.tileId}"]`,
+          ) as HTMLElement | null;
+          if (!tileEl) {
+            setArrivedHeatIntents((prevS) => new Set(prevS).add(intent.tileId));
+            return;
+          }
+          const tileRect = tileEl.getBoundingClientRect();
+          const flyInstances: FlyingDieInstance[] = intent.reservedDice
+            .map((die) => {
+              // Scope to the heat banner — the same die id may also appear in
+              // a looming dice cluster on a different tile, and we want the
+              // fly to start from the banner specifically.
+              const el = document.querySelector(
+                `.hg-heat-banner [data-die-id="${die.id}"]`,
+              ) as HTMLElement | null;
+              if (!el) return null;
+              return {
+                id: `heat-fwd-${intent.tileId}-${die.id}`,
+                die,
+                fromRect: el.getBoundingClientRect(),
+                toRect: tileRect,
+                durationMs: FLY_MS,
+              } satisfies FlyingDieInstance;
+            })
+            .filter((x): x is FlyingDieInstance => x !== null);
+
+          setFlyingDice((prevF) => [...prevF, ...flyInstances]);
+          timers.push(
+            window.setTimeout(() => {
+              setFlyingDice((prevF) =>
+                prevF.filter(
+                  (fd) => !flyInstances.some((fi) => fi.id === fd.id),
+                ),
+              );
+              setArrivedHeatIntents((prevS) =>
+                new Set(prevS).add(intent.tileId),
+              );
+            }, FLY_MS),
+          );
+        }, i * HEAT_STAGE_MS),
+      );
+    });
+
+    // Intents that disappeared since last render. Skip on a new roll —
+    // the previous generation is fully replaced, no reverse-fly is meaningful.
+    const removed = isNewRoll
+      ? []
+      : prev.filter((i) => !currTileIds.has(i.tileId));
+    removed.forEach((intent) => {
+      const tile = heist.grid.tiles.find((t) => t.id === intent.tileId);
+      const becameHeatLocked = tile?.state === 'heatFulfilled';
+
+      if (becameHeatLocked) {
+        // End-turn lock — looming dice vanish; CSS heat-lock keyframe plays.
+        setArrivedHeatIntents((prevS) => {
+          const next = new Set(prevS);
+          next.delete(intent.tileId);
+          return next;
+        });
+        return;
+      }
+
+      // Otherwise: player preempted the tile, or a reroll cancelled the
+      // intent. Fly the looming dice back to the heat tray.
+      const tileEl = document.querySelector(
+        `[data-tile-id="${intent.tileId}"]`,
+      ) as HTMLElement | null;
+      const trayEl = document.querySelector('.hg-heat .hg-dice-row') as
+        | HTMLElement
+        | null;
+      if (!tileEl || !trayEl) {
+        setArrivedHeatIntents((prevS) => {
+          const next = new Set(prevS);
+          next.delete(intent.tileId);
+          return next;
+        });
+        return;
+      }
+      const tileRect = tileEl.getBoundingClientRect();
+      const trayRect = trayEl.getBoundingClientRect();
+      const dieWidth = 56;
+      const flyInstances: FlyingDieInstance[] = intent.reservedDice.map(
+        (die, idx) => {
+          const stepX =
+            intent.reservedDice.length > 1
+              ? Math.min(
+                  56,
+                  (trayRect.width - dieWidth) /
+                    Math.max(1, intent.reservedDice.length - 1),
+                )
+              : 0;
+          const targetLeft = trayRect.left + stepX * idx;
+          return {
+            id: `heat-rev-${intent.tileId}-${die.id}-${Date.now()}`,
+            die,
+            fromRect: tileRect,
+            toRect: new DOMRect(targetLeft, trayRect.top, dieWidth, dieWidth),
+            durationMs: FLY_MS,
+          } satisfies FlyingDieInstance;
+        },
+      );
+      // Hide the looming display immediately so the fly origin reads as the
+      // tile center (the looming dice are "leaving").
+      setArrivedHeatIntents((prevS) => {
+        const next = new Set(prevS);
+        next.delete(intent.tileId);
+        return next;
+      });
+      setFlyingDice((prevF) => [...prevF, ...flyInstances]);
+      timers.push(
+        window.setTimeout(() => {
+          setFlyingDice((prevF) =>
+            prevF.filter(
+              (fd) => !flyInstances.some((fi) => fi.id === fd.id),
+            ),
+          );
+        }, FLY_MS),
+      );
+    });
+
+    prevIntentsRef.current = curr;
+    return () => timers.forEach((t) => window.clearTimeout(t));
+  }, [heist.heatIntents, heist.grid, heist.lastHeatResolution]);
+
+  // Player fulfill: source = pool panel (dice already gone from DOM by the
+  // time we run). Target = the tile.
+  useEffect(() => {
+    const ev = heist.lastPlayerFulfill;
+    if (!ev || ev === handledPlayerRef.current) return;
+    handledPlayerRef.current = ev;
+
+    setPendingPlayerTile(ev.tileId);
+
+    const timers: number[] = [];
+    timers.push(
+      window.setTimeout(() => {
+        const tileEl = document.querySelector(
+          `[data-tile-id="${ev.tileId}"]`,
+        ) as HTMLElement | null;
+        const poolEl = document.querySelector('.hg-dice-row') as HTMLElement | null;
+        if (!tileEl || !poolEl) {
+          setPendingPlayerTile(null);
+          return;
+        }
+        const tileRect = tileEl.getBoundingClientRect();
+        const poolRect = poolEl.getBoundingClientRect();
+        // Spread dice across the pool's width so they don't all launch from
+        // the exact same point.
+        const dieWidth = 56;
+        const flyInstances: FlyingDieInstance[] = ev.consumedDice.map((d, idx) => {
+          const stepX = ev.consumedDice.length > 1
+            ? (poolRect.width - dieWidth) / (ev.consumedDice.length - 1)
+            : 0;
+          const fromLeft = poolRect.left + stepX * idx;
+          const fromRect = new DOMRect(
+            fromLeft,
+            poolRect.top,
+            dieWidth,
+            dieWidth,
+          );
+          return {
+            id: `player-${ev.tileId}-${d.id}`,
+            die: d,
+            fromRect,
+            toRect: tileRect,
+            durationMs: FLY_MS,
+          } satisfies FlyingDieInstance;
+        });
+        setFlyingDice((prev) => [...prev, ...flyInstances]);
+
+        timers.push(
+          window.setTimeout(() => {
+            setFlyingDice((prev) =>
+              prev.filter((fd) => !flyInstances.some((fi) => fi.id === fd.id)),
+            );
+            setPendingPlayerTile(null);
+          }, FLY_MS),
+        );
+      }, 30), // tiny delay to let React's post-mutation commit land
+    );
+
+    return () => timers.forEach((t) => window.clearTimeout(t));
+  }, [heist.lastPlayerFulfill]);
+
 
   const character = run.character;
   const characterDie = heist.pool.find((d) => d.source === 'character');
 
   return (
-    <div className="hg-screen">
+    <div
+      className={`hg-screen ${isOver ? `hg-screen--ended hg-screen--ended-${outcome}` : ''}`}
+    >
       <div className="hg-main">
         <header className="hg-header">
           <div>
@@ -111,35 +394,19 @@ export function HeistScreen() {
             </span>
           </div>
           <div className="hg-header-meta">
-            {character.name} · d{run.characterDie} · {run.abilities.length} ability
+            {character.name} · <DieGlyph size={run.characterDie} px={16} /> ·{' '}
+            {run.abilities.length} ability
             {run.abilities.length === 1 ? '' : 'ies'}
           </div>
         </header>
 
         {ui.message && <div className="hg-message">{ui.message}</div>}
 
-        {isOver && (
-          <div
-            className={`hg-banner hg-banner--${
-              outcome === 'won' ? 'won' : outcome === 'captured' ? 'captured' : 'trapped'
-            }`}
-          >
-            <div className="hg-banner-title">
-              {outcome === 'won' ? 'CLEAN' : outcome === 'captured' ? 'CAUGHT' : 'TRAPPED'}
-            </div>
-            <div className="hg-header-meta">
-              {outcome === 'won'
-                ? isFinalNode
-                  ? 'Final score secured. Walk away.'
-                  : 'Onto the next job.'
-                : outcome === 'captured'
-                  ? 'Heat overran the score.'
-                  : 'No way forward.'}
-            </div>
-            <button className="primary" onClick={onContinue}>
-              {outcome === 'won' && !isFinalNode ? 'CONTINUE' : 'NEW RUN'}
-            </button>
-          </div>
+        {heist.lastHeatResolution && (
+          <HeatResolutionBanner
+            key={`${heist.turn}-${heist.lastHeatResolution.rolledDice.map((d) => d.id).join(',')}`}
+            resolution={heist.lastHeatResolution}
+          />
         )}
 
         <GridView
@@ -147,6 +414,8 @@ export function HeistScreen() {
           selectedDice={selectedDice}
           onTileClick={onTileClick}
           onHoverChange={onHoverChange}
+          arrivedHeatIntents={arrivedHeatIntents}
+          pendingPlayerTile={pendingPlayerTile}
         />
       </div>
 
@@ -161,7 +430,7 @@ export function HeistScreen() {
             <div className="hg-character-info">
               <div className="hg-character-name">{character.name}</div>
               <div className="hg-character-die">
-                d{run.characterDie}
+                <DieGlyph size={run.characterDie} px={18} />
                 {characterDie?.value !== undefined && characterDie?.value !== null
                   ? ` · ${characterDie.value}`
                   : ' · unrolled'}
@@ -203,12 +472,9 @@ export function HeistScreen() {
             <button
               onClick={reroll}
               disabled={isOver || !heist.hasRolledThisTurn}
-              title="Rolls everything and adds a d6 to pool + heat"
+              title="Ends the turn (heat fires) and rolls fresh dice with a +d6 bonus to each pool"
             >
               REROLL
-            </button>
-            <button onClick={endTurn} disabled={isOver}>
-              END TURN
             </button>
           </div>
         </section>
@@ -219,7 +485,9 @@ export function HeistScreen() {
           <AbilityListView
             abilities={run.abilities}
             charges={run.abilityCharges}
-            onActivate={activateAbility}
+            onActivate={onActivateAbility}
+            waitingAbilityId={waitingAbilityId}
+            selectedDiceCount={selectedDice.length}
             disabled={isOver}
           />
         </section>
@@ -244,6 +512,26 @@ export function HeistScreen() {
           </div>
         </section>
       </aside>
+
+      {/* Flying-dice overlay — rendered at screen-root so it can animate
+          across the entire viewport regardless of container boundaries. */}
+      <DiceFlyOverlay flying={flyingDice} />
+
+      {/* Heist-end overlay — replaces the old gameOver-screen cut. The grid
+          remains visible underneath; the player can minimize this overlay
+          to inspect the final board state before proceeding. */}
+      {isOver && outcome && (
+        <HeistEndOverlay
+          outcome={outcome}
+          isFinalNode={isFinalNode}
+          targetName={
+            heist.grid.tiles.find((t) => t.kind === 'target')?.card?.name
+          }
+          turnsTaken={heist.turn}
+          logTail={heist.log.slice(-3)}
+          onProceed={proceedFromOutcome}
+        />
+      )}
     </div>
   );
 }

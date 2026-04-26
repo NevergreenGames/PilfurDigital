@@ -137,4 +137,23 @@ export function applyEffect(spec: EffectSpec, ctx: EffectContext): EffectResult 
   return handler(ctx, spec);
 }
 
+/**
+ * Minimum number of pool dice an effect needs the player to have selected as
+ * targets before it can be applied. 0 means the effect doesn't require any
+ * target selection.
+ */
+export function effectTargetMin(spec: EffectSpec): number {
+  switch (spec.id) {
+    case 'setDieToMax':
+    case 'setDieToValue':
+    case 'duplicateDie':
+    case 'rerollSelected':
+      return 1;
+    case 'setTwoDiceToOne':
+      return 2;
+    default:
+      return 0;
+  }
+}
+
 export { byId, without };
