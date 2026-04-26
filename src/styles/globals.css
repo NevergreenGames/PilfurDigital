@@ -1,16 +1,20 @@
 :root {
-  --bg: #14141b;
-  --bg-2: #1c1c27;
-  --bg-3: #262635;
-  --fg: #e0e0e8;
-  --muted: #6e6e80;
-  --accent: #e0af68;
-  --phase: #7aa2f7;
-  --character: #e0af68;
-  --heat: #f7768e;
-  --stash: #9ece6a;
-  --danger: #f7768e;
-  --border: #333342;
+  /* Dark base with deliberate spacing between bg layers so panels read
+     clearly on top of the screen, and tiles read clearly on top of panels.
+     Each step is roughly +10 lightness from the previous. */
+  --bg: #0a0a12;       /* darkest — page / viewport interior */
+  --bg-2: #21212f;     /* mid — panels (sidebar, banner, grid wrap) */
+  --bg-3: #38384f;     /* brightest — tiles, dice surfaces */
+  --fg: #f2f2fa;       /* near-white text */
+  --muted: #a0a0b8;    /* readable grey for secondary text */
+  --accent: #f0bd72;   /* gold (slightly brighter than before) */
+  --phase: #8ab2ff;    /* blue (brighter) */
+  --character: #f0bd72;
+  --heat: #ff8aa0;     /* warmer red */
+  --stash: #b6e07a;    /* brighter green */
+  --danger: #ff8aa0;
+  --border: #5a5a7a;   /* clearly visible against panels */
+  --border-strong: #7a7aa0; /* for tiles + grid lines that need to pop */
   --radius: 6px;
 }
 
@@ -123,14 +127,20 @@ button.small { padding: 4px 8px; font-size: 11px; margin-left: 8px; }
 }
 
 .character-name { font-size: 18px; font-weight: bold; letter-spacing: 2px; }
-.character-die-chip {
-  align-self: flex-start;
-  background: var(--character);
-  color: var(--bg);
-  padding: 2px 8px;
-  border-radius: 3px;
-  font-size: 11px;
-  font-weight: bold;
+/* Character header — name + starting-die glyph, side by side. */
+.character-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  color: var(--character);
+}
+/* Run-header character block — name + current die glyph. */
+.run-header-char {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--character);
 }
 .character-flavor { color: var(--muted); font-style: italic; font-size: 12px; }
 .character-ability {
@@ -141,7 +151,37 @@ button.small { padding: 4px 8px; font-size: 11px; margin-left: 8px; }
   font-size: 12px;
 }
 .ability-name { font-weight: bold; letter-spacing: 1px; color: var(--accent); }
-.ability-trigger { color: var(--muted); font-size: 11px; margin: 4px 0; }
+
+/* Three-tier ability hierarchy, shared by CharacterSelect + Draft screens. */
+.ability-effect {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+  line-height: 1.35;
+  margin: 6px 0 8px;
+}
+.ability-trigger {
+  color: #e0af68;
+  font-size: 12px;
+  font-weight: 600;
+  margin: 4px 0 6px;
+}
+.ability-trigger-label {
+  color: var(--muted);
+  font-weight: normal;
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 1px;
+  margin-right: 2px;
+}
+.ability-flavor {
+  color: var(--muted);
+  font-size: 11px;
+  font-style: italic;
+  line-height: 1.3;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border);
+}
 
 /* Map */
 .target-grid {
@@ -169,6 +209,12 @@ button.small { padding: 4px 8px; font-size: 11px; margin-left: 8px; }
 .target-name { font-size: 16px; font-weight: bold; letter-spacing: 1px; }
 .target-tier { font-size: 11px; color: var(--muted); }
 .target-flavor { color: var(--muted); font-style: italic; font-size: 12px; }
+.target-dice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
 
 /* Phase card (PhaseCardView + TileHoverCard share .die-chip) */
 .phase-card {
@@ -214,35 +260,137 @@ button.small { padding: 4px 8px; font-size: 11px; margin-left: 8px; }
   font-size: 10px;
 }
 
+/* Inline die glyph — polygon silhouette + size number. Used wherever we'd
+   otherwise have written "d6"/"d8"/etc. as text. */
+.die-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  vertical-align: middle;
+  margin: 0 2px;
+  color: inherit; /* polygon stroke follows currentColor */
+  line-height: 1;
+}
+.die-glyph-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.die-glyph-polygon {
+  fill: transparent;
+  stroke: currentColor;
+  stroke-width: 4;
+  stroke-linejoin: round;
+}
+.die-glyph-label {
+  position: relative;
+  z-index: 1;
+  font-weight: bold;
+  color: currentColor;
+  line-height: 1;
+  letter-spacing: -0.3px;
+}
+
 /* Dice (DieView) */
 .die {
-  background: var(--bg-3);
-  border: 2px solid var(--border);
-  border-radius: 8px;
-  width: 54px;
-  height: 54px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
+  position: relative;
+  background: transparent;
+  border: none;
+  width: 56px;
+  height: 56px;
   padding: 0;
   cursor: pointer;
   font-family: inherit;
   font-weight: bold;
-  transition: all 0.1s;
+  transition: transform 0.1s;
 }
 .die:hover:not(:disabled) {
   transform: translateY(-2px);
 }
 .die.selected {
-  background: var(--accent);
-  color: var(--bg) !important;
-  border-color: var(--accent) !important;
   transform: translateY(-2px);
 }
-.die.selected .die-size, .die.selected .die-value { color: var(--bg); }
-.die-value { font-size: 22px; line-height: 1; }
-.die-size { font-size: 9px; opacity: 0.7; margin-top: 2px; }
+.die.selected .die-value,
+.die.selected .die-size {
+  color: var(--bg);
+}
+.die-size {
+  font-size: 9px;
+  opacity: 0.75;
+  margin-top: 2px;
+  color: currentColor;
+  letter-spacing: 0.5px;
+}
+.die-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible; /* let drop-shadow glows render outside bounds */
+}
+.die-content {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  pointer-events: none;
+}
+.die-value {
+  font-size: 22px;
+  line-height: 1;
+  color: currentColor;
+  font-weight: bold;
+}
+
+/* Ghost (preview) states: applied as SVG filters so the glow follows the
+   polygon silhouette instead of the square button bounds. */
+.die.die--will-consume .die-svg {
+  filter: drop-shadow(0 0 3px rgba(247, 118, 142, 0.95));
+}
+.die.die--will-consume::after {
+  content: '−';
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: rgba(247, 118, 142, 0.95);
+  color: #111;
+  font-weight: bold;
+  border-radius: 999px;
+  width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  line-height: 1;
+  z-index: 2;
+}
+.die.die--will-gain {
+  opacity: 0.7;
+}
+.die.die--will-gain::after {
+  content: '+';
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: rgba(158, 206, 106, 0.95);
+  color: #111;
+  font-weight: bold;
+  border-radius: 999px;
+  width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  line-height: 1;
+  z-index: 2;
+}
 
 /* Draft */
 .draft-row {

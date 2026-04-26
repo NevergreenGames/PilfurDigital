@@ -5,6 +5,7 @@ import {
   Die,
   GameState,
   Grid,
+  HeatIntent,
   HeistState,
   HeistTarget,
   MapNode,
@@ -100,49 +101,75 @@ function setTile(grid: Grid, tileId: TileId, update: Partial<Tile>): Grid {
   return { ...grid, tiles };
 }
 
-// Heat auto-fill pass: walk over revealed unfulfilled tiles 8-adjacent to player,
-// ordered by row*7+col, and attempt to satisfy each with heat dice.
-function heatAutoFillPass(
+// Compute heat intents — heat dice that *would* satisfy adjacent unfulfilled
+// tiles get reserved (set aside) but tiles are NOT mutated. The player has
+// the turn to preempt these by fulfilling the tile themselves; otherwise the
+// intents resolve on End Turn (see resolveHeatIntents).
+function computeHeatIntents(
   grid: Grid,
   player: Position,
   heat: Die[],
-  log: string[],
-): { grid: Grid; heat: Die[]; log: string[]; captured: boolean } {
-  let gridNext = grid;
-  let heatNext = heat;
-  const logNext = [...log];
-  let captured = false;
+): { remainingHeat: Die[]; intents: HeatIntent[] } {
+  let heatNext = [...heat];
+  const intents: HeatIntent[] = [];
 
   const adjTiles = neighbors8(player, grid.rows, grid.cols)
-    .map((p) => findTileAt(gridNext, p))
+    .map((p) => findTileAt(grid, p))
     .filter((t): t is Tile => !!t)
     .filter((t) => t.state === 'revealed' && isUnfulfilled(t) && t.card !== null)
     .sort((a, b) => (a.pos.row * 7 + a.pos.col) - (b.pos.row * 7 + b.pos.col));
 
   for (const t of adjTiles) {
-    // refetch — heat may have changed
     const rolledHeat = heatNext.filter((d) => d.value !== null);
     if (rolledHeat.length === 0) break;
     const card = t.card;
     if (!card) continue;
     const subset = findSatisfyingSubset(rolledHeat, card.requirement);
     if (!subset) continue;
-    const consumedIds = new Set(subset.map((d) => d.id));
-    heatNext = heatNext.filter((d) => !consumedIds.has(d.id));
-    // push tile momentum into heat unrolled
-    const newHeat: Die[] = (card.momentumDice ?? []).map((size) => ({
-      ...createDie(size, 'heat', card.id),
+    const consumedSet = new Set(subset.map((d) => d.id));
+    heatNext = heatNext.filter((d) => !consumedSet.has(d.id));
+    intents.push({
+      tileId: t.id,
+      tileName: card.name,
+      reservedDice: subset.map((d) => ({ ...d })),
+      gainedSizes: card.momentumDice ?? [],
+    });
+  }
+
+  return { remainingHeat: heatNext, intents };
+}
+
+// Resolve heat intents — called on End Turn. Each intent fires:
+// the tile is set to heatFulfilled, the gained dice enter heat as new
+// unrolled dice, and the reserved dice are consumed.
+function resolveHeatIntents(
+  grid: Grid,
+  heat: Die[],
+  intents: HeatIntent[],
+  log: string[],
+): {
+  grid: Grid;
+  heat: Die[];
+  log: string[];
+  capturedOnTarget: boolean;
+} {
+  let gridNext = grid;
+  let heatNext = heat;
+  const logNext = [...log];
+  let capturedOnTarget = false;
+  for (const intent of intents) {
+    const tile = findTileById(gridNext, intent.tileId);
+    if (!tile) continue;
+    gridNext = setTile(gridNext, intent.tileId, { state: 'heatFulfilled' });
+    const newHeat: Die[] = intent.gainedSizes.map((size) => ({
+      ...createDie(size, 'heat', intent.tileId),
       value: null,
     }));
     heatNext = [...heatNext, ...newHeat];
-    gridNext = setTile(gridNext, t.id, { state: 'heatFulfilled' });
-    logNext.push(`🔥 Heat took ${card.name}.`);
-    if (t.kind === 'target') {
-      captured = true;
-    }
+    logNext.push(`🔥 Heat took ${intent.tileName}.`);
+    if (tile.kind === 'target') capturedOnTarget = true;
   }
-
-  return { grid: gridNext, heat: heatNext, log: logNext, captured };
+  return { grid: gridNext, heat: heatNext, log: logNext, capturedOnTarget };
 }
 
 // Outcome detection after any mutation
@@ -236,10 +263,13 @@ function buildFreshHeist(
     player: grid.start,
     pool: [charDie],
     heat: [heatDie],
+    heatIntents: [],
     hasRolledThisTurn: false,
     turn: 1,
     outcome: null,
     log: [`The job: ${target.name}.`],
+    lastHeatResolution: null,
+    lastPlayerFulfill: null,
   };
 }
 
@@ -272,6 +302,7 @@ interface GameStore extends GameState {
   chooseDraft: (optionIndex: number) => void;
   skipDraft: () => void;
   continueToNextNode: () => void;
+  proceedFromOutcome: () => void;
 }
 
 const initialState: GameState = { screen: 'characterSelect' as Screen, run: null };
@@ -385,21 +416,42 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     const pool = rollAll(heist.pool);
     const heatRolled = rollAll(heist.heat);
-    const log = [...heist.log, `Turn ${heist.turn}: rolled ${pool.length} pool + ${heatRolled.length} heat dice.`];
+    // Snapshot for the UI banner — copies of rolled heat dice BEFORE reservation.
+    const rolledSnapshot = heatRolled
+      .filter((d) => d.value !== null)
+      .map((d) => ({ ...d }));
+    const log = [
+      ...heist.log,
+      `Turn ${heist.turn}: rolled ${pool.length} pool + ${heatRolled.length} heat dice.`,
+    ];
 
-    // Run heat auto-fill pass immediately after roll.
-    const pass = heatAutoFillPass(heist.grid, heist.player, heatRolled, log);
+    // Compute heat intents — heat dice are reserved (not consumed) for tiles
+    // they can satisfy. Tiles stay revealed; intents resolve on End Turn unless
+    // the player preempts by fulfilling the tile themselves.
+    const { remainingHeat, intents } = computeHeatIntents(
+      heist.grid,
+      heist.player,
+      heatRolled,
+    );
+    if (intents.length > 0) {
+      log.push(
+        `🔥 Heat is looming over: ${intents.map((i) => i.tileName).join(', ')}.`,
+      );
+    }
+
+    // Banner data — represent intents as "fills" for the existing UI.
+    const fills = intents.map((i) => ({
+      tileId: i.tileId,
+      tileName: i.tileName,
+      consumedIds: i.reservedDice.map((d) => d.id),
+      gainedSizes: i.gainedSizes,
+    }));
 
     // Grant ability charges for any trigger met by the freshly rolled pool.
     const chargeRes = addChargesFromRoll(pool, run.abilities, run.abilityCharges);
     if (chargeRes.gained.length > 0) {
-      pass.log.push(`⚡ Charged: ${chargeRes.gained.join(', ')}.`);
+      log.push(`⚡ Charged: ${chargeRes.gained.join(', ')}.`);
     }
-
-    let outcome = heist.outcome;
-    if (pass.captured) outcome = 'captured';
-    const detected = detectOutcome(pass.grid, heist.player);
-    if (detected && !outcome) outcome = detected;
 
     set({
       run: {
@@ -408,15 +460,19 @@ export const useGameStore = create<GameStore>((set, get) => ({
         heist: {
           ...heist,
           pool,
-          heat: pass.heat,
-          grid: pass.grid,
+          heat: remainingHeat,
+          heatIntents: intents,
           hasRolledThisTurn: true,
-          log: pass.log,
-          outcome: outcome ?? null,
+          log,
+          lastHeatResolution: {
+            rolledDice: rolledSnapshot,
+            fills,
+            capturedOnTarget: false,
+          },
+          lastPlayerFulfill: null,
         },
       },
     });
-    if (outcome) postOutcome(outcome);
   },
 
   playerFulfillTile: (tileId) => {
@@ -517,10 +573,26 @@ export const useGameStore = create<GameStore>((set, get) => ({
       log.push(`Moved to (${newPlayer.row}, ${newPlayer.col}).`);
     }
 
+    // If heat was looming on this tile (intent), the player just preempted it.
+    // Release the reserved dice back to the heat pool — they'll be available
+    // again next roll. The intent goes away.
+    const preemptedIntent = heist.heatIntents.find((i) => i.tileId === tile.id);
+    let heatNext = heat;
+    let intentsNext = heist.heatIntents;
+    if (preemptedIntent) {
+      heatNext = [...heat, ...preemptedIntent.reservedDice];
+      intentsNext = heist.heatIntents.filter((i) => i.tileId !== tile.id);
+      log.push(`✋ Preempted heat on ${preemptedIntent.tileName}.`);
+    }
+
     // Outcome detection.
     let outcome: HeistState['outcome'] = heist.outcome;
     if (tile.kind === 'target') outcome = 'won';
     if (!outcome) outcome = detectOutcome(grid, newPlayer);
+
+    // Snapshot consumed dice (with values) so the UI can animate them flying
+    // to the tile before the tile visually "locks" as fulfilled.
+    const consumedSnapshot = selected.map((d) => ({ ...d }));
 
     set({
       run: {
@@ -530,10 +602,19 @@ export const useGameStore = create<GameStore>((set, get) => ({
           ...heist,
           grid,
           pool,
-          heat,
+          heat: heatNext,
+          heatIntents: intentsNext,
           log,
           player: newPlayer,
           outcome: outcome ?? null,
+          lastHeatResolution: null,
+          lastPlayerFulfill: {
+            tileId: tile.id,
+            tileName: tileCard.name,
+            consumedDice: consumedSnapshot,
+            gainedSizes: tileCard.momentumDice ?? [],
+            movedTo: tile.kind === 'target' ? null : newPlayer,
+          },
         },
       },
       ui: { ...state.ui, selectedDiceIds: [], message: null },
@@ -541,6 +622,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (outcome) postOutcome(outcome);
   },
 
+  // Reroll == End Turn + Roll. Resolves all pending heat intents (locking
+  // tiles, generating new heat from gained dice), advances the turn, then
+  // rolls everything fresh and grants the +1 d6 bonus to pool and heat.
   reroll: () => {
     const state = get();
     const run = state.run;
@@ -548,27 +632,81 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const heist = run.heist;
     if (heist.outcome) return;
 
+    // Step 1 — End-turn resolution: heat intents fire.
+    const resolveLog = [...heist.log, `— end of turn ${heist.turn} —`];
+    const resolved = resolveHeatIntents(
+      heist.grid,
+      heist.heat,
+      heist.heatIntents,
+      resolveLog,
+    );
+
+    let outcome: HeistState['outcome'] = heist.outcome;
+    if (resolved.capturedOnTarget) outcome = 'captured';
+    const detectedAfterResolve = detectOutcome(resolved.grid, heist.player);
+    if (detectedAfterResolve && !outcome) outcome = detectedAfterResolve;
+
+    // If end-turn resolution ends the run, commit and skip the roll.
+    if (outcome) {
+      set({
+        run: {
+          ...run,
+          heist: {
+            ...heist,
+            grid: resolved.grid,
+            heat: resolved.heat,
+            heatIntents: [],
+            turn: heist.turn + 1,
+            hasRolledThisTurn: false,
+            log: resolved.log,
+            outcome,
+          },
+        },
+        ui: { ...state.ui, selectedDiceIds: [], message: null },
+      });
+      postOutcome(outcome);
+      return;
+    }
+
+    // Step 2 — Fresh roll (with the +1 d6 reroll bonus to each pool).
     let pool = rollAll(heist.pool);
-    let heat = rollAll(heist.heat);
-    // Add a fresh d6 to each and roll the new die too.
+    let heat = rollAll(resolved.heat);
     const newPoolDie: Die = { ...createDie(6, 'phase'), value: rollValue(6) };
     const newHeatDie: Die = { ...createDie(6, 'heat'), value: rollValue(6) };
     pool = [...pool, newPoolDie];
     heat = [...heat, newHeatDie];
 
-    const log = [...heist.log, `Reroll: +1 pool die, +1 heat die.`];
-    const pass = heatAutoFillPass(heist.grid, heist.player, heat, log);
+    const log = [
+      ...resolved.log,
+      `Reroll: rolled ${pool.length} pool + ${heat.length} heat dice (+1 d6 each).`,
+    ];
+    const rolledSnapshot = heat
+      .filter((d) => d.value !== null)
+      .map((d) => ({ ...d }));
+
+    // Step 3 — Compute new heat intents against the fresh roll.
+    const { remainingHeat, intents } = computeHeatIntents(
+      resolved.grid,
+      heist.player,
+      heat,
+    );
+    if (intents.length > 0) {
+      log.push(
+        `🔥 Heat is looming over: ${intents.map((i) => i.tileName).join(', ')}.`,
+      );
+    }
+    const fills = intents.map((i) => ({
+      tileId: i.tileId,
+      tileName: i.tileName,
+      consumedIds: i.reservedDice.map((d) => d.id),
+      gainedSizes: i.gainedSizes,
+    }));
 
     // Reroll counts as a roll for ability-charging purposes.
     const chargeRes = addChargesFromRoll(pool, run.abilities, run.abilityCharges);
     if (chargeRes.gained.length > 0) {
-      pass.log.push(`⚡ Charged: ${chargeRes.gained.join(', ')}.`);
+      log.push(`⚡ Charged: ${chargeRes.gained.join(', ')}.`);
     }
-
-    let outcome: HeistState['outcome'] = heist.outcome;
-    if (pass.captured) outcome = 'captured';
-    const detected = detectOutcome(pass.grid, heist.player);
-    if (detected && !outcome) outcome = detected;
 
     set({
       run: {
@@ -576,15 +714,23 @@ export const useGameStore = create<GameStore>((set, get) => ({
         abilityCharges: chargeRes.charges,
         heist: {
           ...heist,
+          grid: resolved.grid,
           pool,
-          heat: pass.heat,
-          grid: pass.grid,
-          log: pass.log,
-          outcome: outcome ?? null,
+          heat: remainingHeat,
+          heatIntents: intents,
+          turn: heist.turn + 1,
+          hasRolledThisTurn: true,
+          log,
+          lastHeatResolution: {
+            rolledDice: rolledSnapshot,
+            fills,
+            capturedOnTarget: false,
+          },
+          lastPlayerFulfill: null,
         },
       },
+      ui: { ...state.ui, selectedDiceIds: [], message: null },
     });
-    if (outcome) postOutcome(outcome);
   },
 
   endTurn: () => {
@@ -593,18 +739,34 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (!run?.heist) return;
     const heist = run.heist;
     if (heist.outcome) return;
+
+    // Resolve any pending heat intents — reserved dice are consumed, tiles
+    // become heatFulfilled, gained dice enter heat as new unrolled dice.
+    const log = [...heist.log, `— end of turn ${heist.turn} —`];
+    const resolved = resolveHeatIntents(heist.grid, heist.heat, heist.heatIntents, log);
+
+    let outcome: HeistState['outcome'] = heist.outcome;
+    if (resolved.capturedOnTarget) outcome = 'captured';
+    const detected = detectOutcome(resolved.grid, heist.player);
+    if (detected && !outcome) outcome = detected;
+
     set({
       run: {
         ...run,
         heist: {
           ...heist,
+          grid: resolved.grid,
+          heat: resolved.heat,
+          heatIntents: [],
           turn: heist.turn + 1,
           hasRolledThisTurn: false,
-          log: [...heist.log, `— end of turn ${heist.turn} —`],
+          log: resolved.log,
+          outcome: outcome ?? null,
         },
       },
       ui: { ...state.ui, selectedDiceIds: [], message: null },
     });
+    if (outcome) postOutcome(outcome);
   },
 
   activateAbility: (abilityId) => {
@@ -692,38 +854,55 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (!run) return;
     set({ screen: 'map', run: { ...run, nodeIndex: run.nodeIndex + 1, heist: null } });
   },
+
+  // Called when the player dismisses/confirms the heist-end overlay. Routes
+  // to the appropriate next screen based on the heist outcome. While the
+  // overlay is open, the heist screen stays visible (state is non-interactive
+  // because run.heist.outcome is set, gating all per-tile actions).
+  proceedFromOutcome: () => {
+    const run = get().run;
+    if (!run?.heist) return;
+    const heistOutcome = run.heist.outcome;
+    if (!heistOutcome) return;
+    if (heistOutcome === 'captured' || heistOutcome === 'trapped') {
+      // End of run — full reset back to character select.
+      set({ ...initialState, ui: initialUI });
+      return;
+    }
+    // Heist won.
+    const isFinalNode = run.nodeIndex === TOTAL_NODES - 1;
+    if (isFinalNode) {
+      set({ screen: 'gameOver' });
+      return;
+    }
+    // Won a non-final node — go to draft for the next job.
+    const draft = buildAbilityDraft(run.abilities);
+    set({ screen: 'draft', run: { ...run, draft, heist: null } });
+  },
 }));
 
-// Post-outcome handler (called after mutations set an outcome).
-// Either transitions to gameOver (caught), gameOver (won the run), or to the draft screen.
+// Post-outcome handler (called after mutations set an outcome). The player
+// stays on the heist screen — a HeistEndOverlay renders on top while the
+// final grid state remains visible underneath. The actual transition (to
+// draft, to character select, to the run-end summary) is triggered by the
+// player via `proceedFromOutcome` once they dismiss/confirm the overlay.
 function postOutcome(outcome: 'won' | 'captured' | 'trapped') {
   const state = useGameStore.getState();
   const run = state.run;
   if (!run) return;
-
+  // Only update run.outcome (used by GameOverScreen later) — do not change
+  // `screen`, do not clear heist, do not pre-build draft. Those happen in
+  // proceedFromOutcome when the player explicitly continues.
   if (outcome === 'captured' || outcome === 'trapped') {
-    useGameStore.setState({
-      screen: 'gameOver',
-      run: { ...run, outcome: 'caught' },
-    });
+    useGameStore.setState({ run: { ...run, outcome: 'caught' } });
     return;
   }
-
-  // won this heist
-  const isFinalNode = run.nodeIndex === TOTAL_NODES - 1;
-  if (isFinalNode) {
-    useGameStore.setState({
-      screen: 'gameOver',
-      run: { ...run, outcome: 'won' },
-    });
-    return;
+  if (outcome === 'won' && run.nodeIndex === TOTAL_NODES - 1) {
+    useGameStore.setState({ run: { ...run, outcome: 'won' } });
   }
-  // move to draft
-  const draft = buildAbilityDraft(run.abilities);
-  useGameStore.setState({
-    screen: 'draft',
-    run: { ...run, draft, heist: null },
-  });
+  // 'won' on a non-final node: leave run as-is. The overlay will show
+  // "Continue to Next Job"; pressing it calls proceedFromOutcome which
+  // builds the draft and transitions screen there.
 }
 
 export { TOTAL_NODES };

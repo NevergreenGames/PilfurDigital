@@ -12,6 +12,7 @@
 }
 
 .hg-main {
+  position: relative;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -56,24 +57,112 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 12px;
-  display: flex;
-  justify-content: center;
+  /* Shrink to the viewport's intrinsic width so the viewport always sits at
+     exactly WRAP_PADDING (12px) from the wrap's left edge. Without this, the
+     wrap stretches with hg-main and any compass positioning that's computed
+     relative to WRAP_PADDING is visually off. */
+  width: max-content;
+  margin: 0 auto;
+}
+
+/* Viewport clips the 7x7 grid to a 5x5 window — the user pans around. */
+.hg-viewport {
+  position: relative;
+  /* 5 tiles wide/tall: 5 * TILE + 4 * GAP = 5 * 120 + 4 * 4 = 616 */
+  width: 616px;
+  height: 616px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  cursor: grab;
+  user-select: none;
+}
+.hg-viewport.hg-viewport--dragging {
+  cursor: grabbing;
 }
 
 .hg-grid {
+  position: absolute;
+  top: 0;
+  left: 0;
   display: grid;
-  grid-template-columns: repeat(7, 88px);
-  grid-template-rows: repeat(7, 88px);
+  grid-template-columns: repeat(7, 120px);
+  grid-template-rows: repeat(7, 120px);
   gap: 4px;
+  transition: transform 180ms ease-out;
+  will-change: transform;
+}
+
+/* Off-screen indicators — slide along the viewport edge to the boundary
+   point closest to their entity (target or player). Click to pan camera. */
+.hg-compass {
+  position: absolute;
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  border-radius: 50%;
+  background: rgba(20, 22, 30, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 15;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.55);
+  transition: left 280ms ease-out, top 280ms ease-out, transform 120ms;
+  font-family: inherit;
+}
+.hg-compass:hover {
+  transform: scale(1.08);
+}
+.hg-compass:active {
+  transform: scale(0.95);
+}
+.hg-compass--target {
+  border: 1px solid var(--accent);
+  color: var(--accent);
+}
+.hg-compass--target:hover {
+  background: rgba(60, 50, 30, 0.95);
+}
+.hg-compass--player {
+  border: 1px solid var(--phase);
+  color: var(--phase);
+}
+.hg-compass--player:hover {
+  background: rgba(30, 40, 60, 0.95);
+}
+.hg-compass-arrow {
+  font-size: 26px;
+  color: inherit;
+  line-height: 1;
+  display: inline-block;
+  transition: transform 200ms ease-out;
+  /* The ➤ glyph points east (right) at 0deg — matches our atan2 convention. */
+}
+.hg-compass-distance {
+  position: absolute;
+  bottom: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 10px;
+  font-weight: bold;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid currentColor;
+  border-radius: 8px;
+  padding: 1px 6px;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
 }
 
 /* Tile */
 .hg-tile {
   position: relative;
-  width: 88px;
-  height: 88px;
+  width: 120px;
+  height: 120px;
   background: var(--bg-3);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius);
   padding: 4px;
   display: flex;
@@ -84,14 +173,17 @@
   font-size: 11px;
   color: var(--fg);
   cursor: default;
-  overflow: hidden;
+  /* Allow children to render outside the tile bounds — looming heat dice
+     specifically peek up above the tile, and overflow:hidden was clipping
+     them to the card edge. */
+  overflow: visible;
   user-select: none;
   transition: transform 0.08s, border-color 0.08s, box-shadow 0.08s;
 }
 
 .hg-tile--hidden {
-  background: #0b0b12;
-  border-color: #1a1a24;
+  background: #050509;
+  border-color: #2a2a3c;
   color: var(--muted);
 }
 
@@ -99,12 +191,12 @@
   background:
     repeating-linear-gradient(
       45deg,
-      #2a2a38,
-      #2a2a38 6px,
-      #1f1f2b 6px,
-      #1f1f2b 12px
+      #4a4a64,
+      #4a4a64 6px,
+      #2a2a3c 6px,
+      #2a2a3c 12px
     );
-  border-color: #3a3a4a;
+  border-color: #6e6e8e;
   cursor: default;
 }
 
@@ -118,28 +210,116 @@
 }
 
 .hg-tile--target {
-  background: linear-gradient(180deg, #2a2418 0%, #1f1d14 100%);
+  background: linear-gradient(180deg, #4a3e22 0%, #322a18 100%);
   border-color: var(--accent);
-  box-shadow: inset 0 0 0 1px rgba(224, 175, 104, 0.3);
+  box-shadow: inset 0 0 0 2px rgba(240, 189, 114, 0.45);
 }
 
 .hg-tile--playerFulfilled {
-  background: #181822;
-  border-color: #2a2a38;
-  opacity: 0.75;
-}
-
-.hg-tile--playerFulfilled.hg-tile--target {
-  background: #1f1d14;
-  border-color: var(--accent);
+  background: #2a2a3c;
+  border-color: #4a4a64;
   opacity: 0.85;
 }
 
+.hg-tile--playerFulfilled.hg-tile--target {
+  background: #322a18;
+  border-color: var(--accent);
+  opacity: 0.9;
+}
+
 .hg-tile--heatFulfilled {
-  background: linear-gradient(180deg, rgba(247, 118, 142, 0.18) 0%, rgba(247, 118, 142, 0.08) 100%);
+  background: linear-gradient(180deg, rgba(255, 138, 160, 0.32) 0%, rgba(255, 138, 160, 0.14) 100%);
   border-color: var(--danger);
-  box-shadow: inset 0 0 0 1px rgba(247, 118, 142, 0.35);
+  box-shadow: inset 0 0 0 2px rgba(255, 138, 160, 0.55);
   cursor: not-allowed;
+  animation: hg-heat-lock 600ms ease-out;
+}
+
+/* Pending-fill affordances — applied while flying dice are en route. The
+   tile keeps its revealed look but telegraphs which incoming force is
+   coming for it. */
+.hg-tile--heat-incoming {
+  outline: 2px solid var(--danger);
+  outline-offset: -4px;
+  animation: hg-tile-incoming-heat 700ms ease-in-out infinite;
+}
+@keyframes hg-tile-incoming-heat {
+  0%, 100% { box-shadow: 0 0 0 rgba(247, 118, 142, 0); }
+  50%      { box-shadow: 0 0 16px rgba(247, 118, 142, 0.65); }
+}
+.hg-tile--player-incoming {
+  outline: 2px solid var(--accent);
+  outline-offset: -4px;
+  animation: hg-tile-incoming-player 500ms ease-out;
+}
+
+/* Threatened tile — heat dice are looming. Pulses red until resolved. */
+.hg-tile--threatened {
+  outline: 2px solid var(--danger);
+  outline-offset: -4px;
+  animation: hg-tile-threatened 1.6s ease-in-out infinite;
+}
+@keyframes hg-tile-threatened {
+  0%, 100% { box-shadow: 0 0 0 rgba(255, 138, 160, 0); }
+  50%      { box-shadow: 0 0 14px rgba(255, 138, 160, 0.55); }
+}
+
+/* Looming heat dice — rendered at the .hg-grid-wrap level so they can
+   extend past the viewport's clip rectangle when threatening an edge tile.
+   Position is set inline (camera-relative wrap coords); CSS handles the
+   bobbing animation, centering, and red glow. */
+.hg-loom-cluster {
+  position: absolute;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  pointer-events: none;
+  z-index: 12;
+  animation: hg-loom-bob 1.6s ease-in-out infinite;
+  filter: drop-shadow(0 0 6px rgba(255, 138, 160, 0.7));
+  /* Smooth-track the camera transform when the user pans/drag-pans the grid. */
+  transition: left 180ms ease-out, top 180ms ease-out;
+}
+@keyframes hg-loom-bob {
+  0%, 100% { transform: translate(-50%, 0); }
+  50%      { transform: translate(-50%, -4px); }
+}
+.hg-loom-cluster .die {
+  /* Scale down so the cluster reads as "small dice hovering" rather than
+     full-size dice the player could click. */
+  transform: scale(0.7);
+  transform-origin: center;
+  /* Subtle red tint to mark these as incoming heat, not just dice. */
+  filter: hue-rotate(-15deg) saturate(1.3);
+}
+@keyframes hg-tile-incoming-player {
+  0%   { box-shadow: 0 0 0 rgba(224, 175, 104, 0); }
+  70%  { box-shadow: 0 0 18px rgba(224, 175, 104, 0.75); }
+  100% { box-shadow: 0 0 0 rgba(224, 175, 104, 0); }
+}
+@keyframes hg-heat-lock {
+  0% {
+    background-color: rgba(247, 118, 142, 0.7);
+    box-shadow: 0 0 22px rgba(247, 118, 142, 0.8);
+    transform: scale(1.04);
+  }
+  55% {
+    background-color: rgba(247, 118, 142, 0.35);
+    box-shadow: 0 0 14px rgba(247, 118, 142, 0.4);
+    transform: scale(1);
+  }
+  100% {
+    box-shadow: inset 0 0 0 1px rgba(247, 118, 142, 0.35);
+    transform: scale(1);
+  }
+}
+.hg-tile--heatFulfilled .hg-tile-lock {
+  animation: hg-heat-lock-icon 500ms ease-out 80ms both;
+}
+@keyframes hg-heat-lock-icon {
+  0% { transform: scale(0); opacity: 0; }
+  60% { transform: scale(1.4); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
 }
 
 /* Affordance outlines */
@@ -205,26 +385,21 @@
 
 .hg-tile-dice {
   display: flex;
-  gap: 2px;
+  gap: 6px;
   flex-wrap: wrap;
   justify-content: center;
+  align-items: center;
 }
 
-.hg-die-badge {
-  font-size: 9px;
-  padding: 0 3px;
-  border-radius: 2px;
-  background: var(--bg-2);
-  border: 1px solid var(--border);
-  color: var(--fg);
-}
-
-.hg-die-badge.hg-die-d4 { border-color: #9ece6a; color: #9ece6a; }
-.hg-die-badge.hg-die-d6 { border-color: #7aa2f7; color: #7aa2f7; }
-.hg-die-badge.hg-die-d8 { border-color: #bb9af7; color: #bb9af7; }
-.hg-die-badge.hg-die-d10 { border-color: #7dcfff; color: #7dcfff; }
-.hg-die-badge.hg-die-d12 { border-color: #e0af68; color: #e0af68; }
-.hg-die-badge.hg-die-d20 { border-color: #f7768e; color: #f7768e; }
+/* Tile reward dice — per-size color applied via currentColor so DieGlyph's
+   polygon stroke + label pick it up. */
+.hg-tile-die { display: inline-flex; }
+.hg-tile-die-d4 { color: #9ece6a; }
+.hg-tile-die-d6 { color: #7aa2f7; }
+.hg-tile-die-d8 { color: #bb9af7; }
+.hg-tile-die-d10 { color: #7dcfff; }
+.hg-tile-die-d12 { color: #e0af68; }
+.hg-tile-die-d20 { color: #f7768e; }
 
 /* Fog overlay (hidden tiles) — target glyph still shows through */
 .hg-tile-fog {
@@ -363,52 +538,8 @@
   gap: 4px;
 }
 
-/* Pool dice preview states: driven by tile hover in HeistScreen. */
-.die.die--will-consume {
-  box-shadow: 0 0 0 2px rgba(247, 118, 142, 0.55);
-  filter: saturate(0.85);
-  position: relative;
-}
-.die.die--will-consume::after {
-  content: '−';
-  position: absolute;
-  top: -4px;
-  right: -4px;
-  background: rgba(247, 118, 142, 0.95);
-  color: #111;
-  font-weight: bold;
-  border-radius: 999px;
-  width: 14px;
-  height: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 11px;
-  line-height: 1;
-}
-.die.die--will-gain {
-  opacity: 0.55;
-  border-style: dashed !important;
-  background: transparent;
-  position: relative;
-}
-.die.die--will-gain::after {
-  content: '+';
-  position: absolute;
-  top: -4px;
-  right: -4px;
-  background: rgba(158, 206, 106, 0.95);
-  color: #111;
-  font-weight: bold;
-  border-radius: 999px;
-  width: 14px;
-  height: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 11px;
-  line-height: 1;
-}
+/* Pool dice preview states are owned by globals.css — the SVG-polygon die
+   uses filter: drop-shadow so the glow traces the polygon silhouette. */
 .hg-dice-plus {
   align-self: center;
   color: var(--muted);
@@ -549,19 +680,48 @@
   color: var(--accent);
   font-size: 12px;
 }
+
+/* PRIMARY — main effect. Dominates the card. */
+.hg-ability-effect {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+  line-height: 1.35;
+  letter-spacing: 0.2px;
+}
+
+/* SECONDARY — charge trigger. Compact row, but more prominent than flavor. */
+.hg-ability-trigger-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+.hg-ability-trigger-label {
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-size: 9px;
+}
 .hg-ability-trigger {
+  color: #e0af68;
+  font-weight: 600;
+  padding: 1px 8px;
+  background: rgba(224, 175, 104, 0.1);
+  border-radius: 2px;
+  border: 1px solid rgba(224, 175, 104, 0.4);
+}
+
+/* TERTIARY — flavor. De-emphasized footer. */
+.hg-ability-flavor {
   font-size: 10px;
   color: var(--muted);
-  font-weight: bold;
-  padding: 1px 6px;
-  background: var(--bg-2);
-  border-radius: 2px;
-  border: 1px solid var(--border);
+  font-style: italic;
+  line-height: 1.3;
+  padding-top: 2px;
+  border-top: 1px dashed var(--border);
 }
-.hg-ability-text {
-  font-size: 11px;
-  color: var(--fg);
-}
+
 .hg-ability button {
   padding: 4px 8px;
   font-size: 10px;
@@ -571,6 +731,22 @@
 .hg-ability--charged {
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent) inset;
+}
+.hg-ability--waiting {
+  border-color: var(--phase);
+  box-shadow: 0 0 0 1px var(--phase) inset, 0 0 12px rgba(138, 178, 255, 0.45);
+  animation: hg-ability-waiting-pulse 1.4s ease-in-out infinite;
+}
+@keyframes hg-ability-waiting-pulse {
+  0%, 100% { box-shadow: 0 0 0 1px var(--phase) inset, 0 0 8px rgba(138, 178, 255, 0.3); }
+  50%      { box-shadow: 0 0 0 1px var(--phase) inset, 0 0 16px rgba(138, 178, 255, 0.55); }
+}
+.hg-ability-target-hint {
+  font-size: 11px;
+  color: var(--phase);
+  font-style: italic;
+  padding: 4px 0 2px;
+  letter-spacing: 0.3px;
 }
 .hg-ability-charges {
   font-size: 10px;
@@ -645,3 +821,354 @@
   border-color: var(--accent);
 }
 .hg-banner--trapped .hg-banner-title { color: var(--accent); }
+
+/* ─── Heist-end overlay ─────────────────────────────────────────────────
+   Renders on top of the heist screen when run.heist.outcome is set. Has a
+   minimize state (tiny floating chip) so the player can inspect the final
+   board layout before proceeding. */
+
+/* Whole-screen modifiers when the heist has ended. Disable cursor/pointer
+   on interactive grid elements so the frozen state is unmistakably final. */
+.hg-screen--ended .hg-tile,
+.hg-screen--ended .hg-pan-btn,
+.hg-screen--ended .hg-actions button,
+.hg-screen--ended .hg-ability button {
+  cursor: default !important;
+  pointer-events: none;
+}
+.hg-screen--ended .hg-viewport {
+  cursor: default;
+}
+
+/* When the heist is ended and the grid is zoomed out, the player and target
+   are both visible — the orientation compasses are no longer useful. */
+.hg-screen--ended .hg-compass {
+  display: none;
+}
+
+/* Demise animation on the player pawn — shake + fade for capture/trap. */
+.hg-screen--ended-captured .hg-pawn-inner,
+.hg-screen--ended-trapped .hg-pawn-inner {
+  animation: hg-pawn-demise 1.1s ease-out both;
+}
+@keyframes hg-pawn-demise {
+  0%   { transform: scale(1) rotate(0); opacity: 1; }
+  20%  { transform: scale(1.18) rotate(-12deg); opacity: 1; background: var(--danger); color: var(--bg); }
+  35%  { transform: scale(1.05) rotate(10deg); }
+  55%  { transform: scale(0.95) rotate(-6deg); }
+  75%  { transform: scale(0.85) rotate(4deg); opacity: 0.6; }
+  100% { transform: scale(0.6) rotate(0); opacity: 0.25; }
+}
+
+/* End-of-heist zoom — scales the grid down so the entire 7×7 fits in the
+   5×5 viewport, revealing the full board (walls, heat locks, fulfilled
+   path, target). Applied for every outcome (won/captured/trapped). */
+.hg-screen--ended .hg-grid {
+  animation: hg-grid-zoom-out 900ms ease-out 200ms forwards;
+  transform-origin: top left;
+}
+@keyframes hg-grid-zoom-out {
+  to {
+    /* Scale = viewport / grid total = 616 / (7*120 + 6*4) = 616/864 ≈ 0.713 */
+    transform: scale(0.713) translate(0, 0);
+  }
+}
+
+/* End-of-heist target highlight — the target tile glows gold regardless of
+   how the heist ended (player won, heat took it, or player got trapped
+   before reaching it). Overrides heatFulfilled / playerFulfilled styling so
+   the score is unmistakable in the final review. */
+.hg-screen--ended .hg-tile--target {
+  /* Strip background tints from fulfilled states so the gold dominates. */
+  background: linear-gradient(180deg, #4a3e22 0%, #322a18 100%) !important;
+  border-color: var(--accent) !important;
+  animation: hg-target-end-glow 1.6s ease-in-out infinite;
+  z-index: 5; /* lift slightly so the glow isn't clipped by neighbors */
+}
+@keyframes hg-target-end-glow {
+  0%, 100% {
+    box-shadow:
+      inset 0 0 0 2px rgba(240, 189, 114, 0.55),
+      0 0 14px rgba(240, 189, 114, 0.45);
+  }
+  50% {
+    box-shadow:
+      inset 0 0 0 3px rgba(240, 189, 114, 1),
+      0 0 30px rgba(240, 189, 114, 0.85);
+  }
+}
+
+/* While the heist is ended, looming heat dice are no longer relevant — the
+   grid is in review mode, not interactive. Hide them so they don't hover
+   over the frozen state. */
+.hg-screen--ended .hg-loom-cluster {
+  display: none;
+}
+
+/* The full-screen overlay panel. */
+.hg-end-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 8, 14, 0.74);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  animation: hg-end-fade-in 360ms ease-out;
+}
+@keyframes hg-end-fade-in {
+  from { opacity: 0; backdrop-filter: blur(0px); }
+  to   { opacity: 1; backdrop-filter: blur(2px); }
+}
+.hg-end-card {
+  position: relative;
+  width: min(440px, calc(100vw - 32px));
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 24px 18px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.hg-end-overlay--captured .hg-end-card,
+.hg-end-overlay--trapped .hg-end-card {
+  border-color: var(--danger);
+  box-shadow: 0 18px 60px rgba(255, 138, 160, 0.18), 0 0 0 1px var(--danger) inset;
+}
+.hg-end-overlay--won .hg-end-card {
+  border-color: var(--accent);
+  box-shadow: 0 18px 60px rgba(240, 189, 114, 0.18), 0 0 0 1px var(--accent) inset;
+}
+.hg-end-minimize {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: var(--radius);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.hg-end-minimize:hover { color: var(--fg); border-color: var(--fg); }
+.hg-end-title {
+  font-size: 36px;
+  letter-spacing: 4px;
+  font-weight: bold;
+  margin: 0;
+  line-height: 1;
+}
+.hg-end-title--won { color: var(--accent); }
+.hg-end-title--captured,
+.hg-end-title--trapped { color: var(--danger); }
+.hg-end-flavor {
+  color: var(--fg);
+  font-size: 13px;
+  line-height: 1.4;
+  font-style: italic;
+}
+.hg-end-stats {
+  display: flex;
+  gap: 20px;
+  padding: 8px 0;
+  border-top: 1px dashed var(--border);
+  border-bottom: 1px dashed var(--border);
+}
+.hg-end-stats > div { display: flex; flex-direction: column; gap: 2px; }
+.hg-end-stat-label {
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.hg-end-stat-value { font-size: 14px; font-weight: bold; color: var(--fg); }
+.hg-end-log {
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 80px;
+  overflow-y: auto;
+}
+.hg-end-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+/* Minimized chip — bottom-right, click to restore. */
+.hg-end-min {
+  position: fixed;
+  bottom: 18px;
+  right: 18px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--fg);
+  font-family: inherit;
+  font-size: 12px;
+  letter-spacing: 2px;
+  font-weight: bold;
+  cursor: pointer;
+  z-index: 200;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  animation: hg-end-min-in 260ms ease-out;
+}
+@keyframes hg-end-min-in {
+  from { transform: translateY(20px); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+.hg-end-min--won { border-color: var(--accent); color: var(--accent); }
+.hg-end-min--captured,
+.hg-end-min--trapped { border-color: var(--danger); color: var(--danger); }
+.hg-end-min:hover { background: var(--bg-3); }
+.hg-end-min-restore {
+  font-size: 14px;
+  font-weight: normal;
+  opacity: 0.7;
+}
+
+/* Heat resolution banner — floats over the top of the main area so it
+   never pushes the grid down when it appears. */
+.hg-heat-banner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  background: linear-gradient(180deg, rgba(247, 118, 142, 0.98) 0%, rgba(40, 20, 30, 0.96) 100%);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: hg-heat-banner-in 220ms ease-out;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+@keyframes hg-heat-banner-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.hg-heat-banner-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.hg-heat-banner-label {
+  font-weight: bold;
+  font-size: 13px;
+  letter-spacing: 3px;
+  color: var(--danger);
+  animation: hg-heat-label-pulse 1.1s ease-in-out infinite;
+}
+@keyframes hg-heat-label-pulse {
+  0%, 100% { opacity: 1; text-shadow: 0 0 0 rgba(247, 118, 142, 0); }
+  50%      { opacity: 0.75; text-shadow: 0 0 8px rgba(247, 118, 142, 0.6); }
+}
+.hg-heat-banner-dice {
+  display: flex;
+  gap: 6px;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.hg-heat-banner-dice .die {
+  animation: hg-heat-dice-in 320ms ease-out both;
+}
+.hg-heat-banner-dice .die:nth-child(1) { animation-delay: 0ms; }
+.hg-heat-banner-dice .die:nth-child(2) { animation-delay: 60ms; }
+.hg-heat-banner-dice .die:nth-child(3) { animation-delay: 120ms; }
+.hg-heat-banner-dice .die:nth-child(4) { animation-delay: 180ms; }
+.hg-heat-banner-dice .die:nth-child(5) { animation-delay: 240ms; }
+.hg-heat-banner-dice .die:nth-child(6) { animation-delay: 300ms; }
+.hg-heat-banner-dice .die:nth-child(n+7) { animation-delay: 360ms; }
+@keyframes hg-heat-dice-in {
+  0% {
+    opacity: 0;
+    transform: rotate(-140deg) scale(0.6);
+  }
+  60% {
+    transform: rotate(18deg) scale(1.08);
+  }
+  100% {
+    opacity: 1;
+    transform: rotate(0) scale(1);
+  }
+}
+.hg-heat-banner-empty {
+  color: var(--muted);
+  font-size: 11px;
+  font-style: italic;
+}
+.hg-heat-banner-skip {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  width: 26px;
+  height: 26px;
+  font-size: 12px;
+  line-height: 1;
+  padding: 0;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.hg-heat-banner-skip:hover { color: var(--fg); border-color: var(--fg); }
+
+.hg-heat-banner-fills {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+.hg-heat-fill {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  color: var(--fg);
+  animation: hg-heat-fill-in 340ms ease-out both;
+}
+@keyframes hg-heat-fill-in {
+  from { opacity: 0; transform: translateX(-8px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.hg-heat-fill--new .hg-heat-fill-name {
+  color: var(--danger);
+  text-shadow: 0 0 8px rgba(247, 118, 142, 0.6);
+}
+.hg-heat-fill-arrow { color: var(--danger); font-weight: bold; }
+.hg-heat-fill-name { font-weight: bold; letter-spacing: 1px; }
+.hg-heat-fill-note {
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--danger);
+  padding: 1px 6px;
+  border: 1px solid var(--danger);
+  border-radius: 2px;
+}
+.hg-heat-fill-gain { color: var(--muted); font-size: 11px; }
+.hg-heat-banner-nothing { color: var(--muted); font-size: 11px; font-style: italic; }
+.hg-heat-banner-captured {
+  color: var(--danger);
+  font-weight: bold;
+  letter-spacing: 1px;
+  padding-top: 4px;
+  border-top: 1px dashed var(--danger);
+}

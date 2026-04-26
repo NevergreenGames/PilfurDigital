@@ -1,5 +1,6 @@
 import { useGameStore } from '../../state/gameStore';
 import { describeRequirement } from '../../engine/requirements';
+import { DieGlyph, withDieGlyphs } from '../components/DieGlyph';
 
 export function DraftScreen() {
   const run = useGameStore((s) => s.run);
@@ -10,8 +11,9 @@ export function DraftScreen() {
   return (
     <div className="screen draft">
       <header className="run-header">
-        <div>
-          <strong>{run.character.name}</strong> · d{run.characterDie}
+        <div className="run-header-char">
+          <strong>{run.character.name}</strong>
+          <DieGlyph size={run.characterDie} px={22} />
         </div>
         <div>DRAFT</div>
         <div>Heat {run.heat.length} · Abilities {run.abilities.length}</div>
@@ -22,8 +24,14 @@ export function DraftScreen() {
         {run.draft.map((opt, i) => (
           <div key={i} className="draft-option">
             <div className="ability-name">{opt.ability.name}</div>
-            <div className="ability-trigger">Trigger: {describeRequirement(opt.ability.trigger)}</div>
-            <div className="ability-text">{opt.ability.text}</div>
+            <div className="ability-effect">{withDieGlyphs(opt.ability.text)}</div>
+            <div className="ability-trigger">
+              <span className="ability-trigger-label">Charges on</span>{' '}
+              {describeRequirement(opt.ability.trigger)}
+            </div>
+            {opt.ability.flavor && (
+              <div className="ability-flavor">{opt.ability.flavor}</div>
+            )}
             <button className="primary" onClick={() => chooseDraft(i)}>
               TAKE
             </button>
