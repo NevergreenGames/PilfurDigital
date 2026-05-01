@@ -1,0 +1,210 @@
+/* Persistent gear icon, modals, and tutorial overlay styling. */
+
+/* --- Gear icon ----------------------------------------------------------- */
+.gear-icon {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-2);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  cursor: pointer;
+  z-index: 200;
+  transition: color 0.15s, transform 0.2s, border-color 0.15s;
+}
+.gear-icon:hover { color: var(--fg); border-color: var(--accent); transform: rotate(30deg); }
+.gear-icon--active { color: var(--accent); border-color: var(--accent); }
+
+/* --- Modal shell --------------------------------------------------------- */
+.modal-root {
+  position: fixed;
+  inset: 0;
+  background: rgba(5, 5, 9, 0.78);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 300;
+  animation: modal-fade 180ms ease-out;
+}
+@keyframes modal-fade { from { opacity: 0; } to { opacity: 1; } }
+
+.modal-card {
+  background: var(--bg-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 22px 26px;
+  min-width: 380px;
+  max-width: 560px;
+  max-height: 86vh;
+  overflow: auto;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.modal-header h2 { margin: 0; font-size: 20px; letter-spacing: 4px; }
+
+.modal-close {
+  background: transparent;
+  color: var(--muted);
+  border: none;
+  font-size: 20px;
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+.modal-close:hover { color: var(--fg); background: transparent; border: none; }
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+/* --- Settings modal contents ------------------------------------------- */
+.settings-section {
+  margin-bottom: 18px;
+  padding-bottom: 16px;
+  border-bottom: 1px dashed var(--border);
+}
+.settings-section:last-of-type { border-bottom: none; }
+.settings-section h3 { color: var(--accent); margin: 0 0 10px; }
+
+.settings-slider { display: block; margin-bottom: 10px; }
+.settings-slider-label {
+  display: flex; justify-content: space-between;
+  font-size: 12px; color: var(--muted); margin-bottom: 4px;
+}
+.settings-slider-value { color: var(--fg); font-variant-numeric: tabular-nums; }
+.settings-slider input[type=range] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.settings-stations {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.settings-station {
+  text-align: left;
+  padding: 10px 12px;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--fg);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.settings-station:hover { border-color: var(--accent); }
+.settings-station.is-active {
+  border-color: var(--accent);
+  background: linear-gradient(180deg, rgba(240, 189, 114, 0.18), rgba(240, 189, 114, 0.05));
+}
+.settings-station-name { font-weight: bold; letter-spacing: 1px; font-size: 13px; }
+.settings-station-desc { color: var(--muted); font-size: 11px; margin-top: 2px; }
+
+.settings-toggle {
+  display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
+}
+.settings-toggle input[type=checkbox] { accent-color: var(--accent); width: 16px; height: 16px; }
+
+/* --- Credits modal ----------------------------------------------------- */
+.credits-body p { line-height: 1.5; margin: 0 0 10px; }
+.credits-body code { background: var(--bg-3); padding: 1px 6px; border-radius: 3px; font-size: 12px; }
+
+/* --- Tutorial overlay -------------------------------------------------- */
+.tut-root {
+  position: fixed;
+  inset: 0;
+  z-index: 250;
+  pointer-events: none;
+}
+
+/* Spotlight: a transparent rectangle with a giant box-shadow that darkens
+   everything *outside* the rect, leaving the anchor visible. */
+.tut-spotlight {
+  position: fixed;
+  border-radius: 10px;
+  box-shadow:
+    0 0 0 9999px rgba(5, 5, 9, 0.72),
+    0 0 0 2px var(--accent),
+    0 0 22px rgba(240, 189, 114, 0.65) inset;
+  pointer-events: none;
+  transition: top 200ms ease, left 200ms ease, width 200ms ease, height 200ms ease;
+}
+
+.tut-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(5, 5, 9, 0.72);
+  pointer-events: auto;
+}
+
+.tut-tooltip {
+  position: fixed;
+  width: 360px;
+  max-width: calc(100vw - 32px);
+  background: var(--bg-2);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  color: var(--fg);
+  font-size: 13px;
+  line-height: 1.45;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+  pointer-events: auto;
+  animation: tut-pop 260ms ease-out;
+}
+@keyframes tut-pop {
+  0%   { opacity: 0; transform: translateY(-6px) scale(0.98); }
+  100% { opacity: 1; transform: translateY(0)    scale(1);    }
+}
+
+.tut-tooltip--center {
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  animation: tut-pop-center 260ms ease-out;
+}
+@keyframes tut-pop-center {
+  0%   { opacity: 0; transform: translate(-50%, calc(-50% - 6px)) scale(0.98); }
+  100% { opacity: 1; transform: translate(-50%, -50%)             scale(1);    }
+}
+
+.tut-text { color: var(--fg); }
+
+.tut-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+.tut-btn { letter-spacing: 2px; }
+
+/* --- Reduce motion ------------------------------------------------------ */
+/* Plumbed by App.tsx via a `data-reduce-motion="true"` attribute on the
+   document body. Disables the heavier animations site-wide. */
+body[data-reduce-motion="true"] *,
+body[data-reduce-motion="true"] *::before,
+body[data-reduce-motion="true"] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+}

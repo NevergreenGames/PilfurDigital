@@ -155,18 +155,20 @@ export function TileView({
         <>
           <div className="hg-tile-head">
             <div className="hg-tile-glyph">{iconForCard(tile.card)}</div>
-            <div className="hg-tile-req">{requirementGlyph(tile.card.requirement)}</div>
           </div>
           {tile.card.type === 'goal' && (
             <div className="hg-tile-name">{tile.card.name}</div>
           )}
-          <div className="hg-tile-dice">
-            {tile.card.momentumDice.map((size, i) => (
-              <span key={i} className={`hg-tile-die hg-tile-die-d${size}`}>
-                <DieGlyph size={size} px={16} />
-              </span>
-            ))}
-          </div>
+          <div className="hg-tile-req">{requirementGlyph(tile.card.requirement)}</div>
+          {tile.card.momentumDice.length > 0 && (
+            <div className="hg-tile-dice">
+              {tile.card.momentumDice.map((size, i) => (
+                <span key={i} className={`hg-tile-die hg-tile-die-d${size}`}>
+                  <DieGlyph size={size} px={16} />
+                </span>
+              ))}
+            </div>
+          )}
         </>
       )}
 

@@ -74,11 +74,11 @@ export interface HeistTarget {
   name: string;
   tier: 1 | 2 | 3;
   requirement: Requirement;
-  momentumDice: DieSize[];
   flavor?: string;
 }
 
 export type Screen =
+  | 'title'
   | 'characterSelect'
   | 'map'
   | 'heist'
@@ -109,8 +109,8 @@ export interface Tile {
 }
 
 export interface Grid {
-  rows: 7;
-  cols: 7;
+  rows: number;
+  cols: number;
   tiles: Tile[];
   start: Position;
   target: Position;

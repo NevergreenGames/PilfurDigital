@@ -84,6 +84,18 @@ export function HeistScreen() {
       setWaitingAbilityId(null);
       return;
     }
+    // Bail if the ability has no charges left. Without this gate the
+    // useEffect can re-fire after a successful activation (zustand
+    // notifies its subscribers synchronously, ahead of the
+    // setWaitingAbilityId(null) React update getting flushed) and call
+    // activateAbility a second time. The second call hits the
+    // "not charged" branch which still mutates state, triggering another
+    // re-render — infinite loop, React error #185.
+    const charges = run.abilityCharges[waitingAbilityId] ?? 0;
+    if (charges <= 0) {
+      setWaitingAbilityId(null);
+      return;
+    }
     const min = effectTargetMin(ability.effect);
     if (selectedDice.length >= min) {
       activateAbility(waitingAbilityId);
@@ -200,7 +212,7 @@ export function HeistScreen() {
           }
           const tileRect = tileEl.getBoundingClientRect();
           const flyInstances: FlyingDieInstance[] = intent.reservedDice
-            .map((die) => {
+            .map((die): FlyingDieInstance | null => {
               // Scope to the heat banner — the same die id may also appear in
               // a looming dice cluster on a different tile, and we want the
               // fly to start from the banner specifically.
@@ -214,7 +226,7 @@ export function HeistScreen() {
                 fromRect: el.getBoundingClientRect(),
                 toRect: tileRect,
                 durationMs: FLY_MS,
-              } satisfies FlyingDieInstance;
+              };
             })
             .filter((x): x is FlyingDieInstance => x !== null);
 
@@ -274,7 +286,7 @@ export function HeistScreen() {
       const trayRect = trayEl.getBoundingClientRect();
       const dieWidth = 56;
       const flyInstances: FlyingDieInstance[] = intent.reservedDice.map(
-        (die, idx) => {
+        (die, idx): FlyingDieInstance => {
           const stepX =
             intent.reservedDice.length > 1
               ? Math.min(
@@ -290,7 +302,7 @@ export function HeistScreen() {
             fromRect: tileRect,
             toRect: new DOMRect(targetLeft, trayRect.top, dieWidth, dieWidth),
             durationMs: FLY_MS,
-          } satisfies FlyingDieInstance;
+          };
         },
       );
       // Hide the looming display immediately so the fly origin reads as the
@@ -341,25 +353,27 @@ export function HeistScreen() {
         // Spread dice across the pool's width so they don't all launch from
         // the exact same point.
         const dieWidth = 56;
-        const flyInstances: FlyingDieInstance[] = ev.consumedDice.map((d, idx) => {
-          const stepX = ev.consumedDice.length > 1
-            ? (poolRect.width - dieWidth) / (ev.consumedDice.length - 1)
-            : 0;
-          const fromLeft = poolRect.left + stepX * idx;
-          const fromRect = new DOMRect(
-            fromLeft,
-            poolRect.top,
-            dieWidth,
-            dieWidth,
-          );
-          return {
-            id: `player-${ev.tileId}-${d.id}`,
-            die: d,
-            fromRect,
-            toRect: tileRect,
-            durationMs: FLY_MS,
-          } satisfies FlyingDieInstance;
-        });
+        const flyInstances: FlyingDieInstance[] = ev.consumedDice.map(
+          (d, idx): FlyingDieInstance => {
+            const stepX = ev.consumedDice.length > 1
+              ? (poolRect.width - dieWidth) / (ev.consumedDice.length - 1)
+              : 0;
+            const fromLeft = poolRect.left + stepX * idx;
+            const fromRect = new DOMRect(
+              fromLeft,
+              poolRect.top,
+              dieWidth,
+              dieWidth,
+            );
+            return {
+              id: `player-${ev.tileId}-${d.id}`,
+              die: d,
+              fromRect,
+              toRect: tileRect,
+              durationMs: FLY_MS,
+            };
+          },
+        );
         setFlyingDice((prev) => [...prev, ...flyInstances]);
 
         timers.push(
@@ -463,6 +477,7 @@ export function HeistScreen() {
           <div className="hg-panel-title">Actions</div>
           <div className="hg-actions">
             <button
+              data-tutorial="roll-button"
               onClick={rollDiceAction}
               disabled={isOver || heist.hasRolledThisTurn}
               className={!heist.hasRolledThisTurn && !isOver ? 'primary' : ''}
@@ -470,6 +485,7 @@ export function HeistScreen() {
               ROLL
             </button>
             <button
+              data-tutorial="reroll-button"
               onClick={reroll}
               disabled={isOver || !heist.hasRolledThisTurn}
               title="Ends the turn (heat fires) and rolls fresh dice with a +d6 bonus to each pool"

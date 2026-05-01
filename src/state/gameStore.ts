@@ -247,7 +247,7 @@ function buildFreshHeist(
       name: target.name,
       type: 'goal',
       requirement: target.requirement,
-      momentumDice: target.momentumDice,
+      momentumDice: [],
       flavor: target.flavor,
     };
   }
@@ -255,14 +255,22 @@ function buildFreshHeist(
     ...createDie(run.characterDie, 'character', run.character.id),
     value: null,
   };
-  const heatDie: Die = { ...createDie(6, 'heat'), value: null };
+  // Every heist starts with the character die plus a fresh d6.
+  const starterD6: Die = { ...createDie(6, 'stash'), value: null };
+  // Heat scales by level. Level 1 (nodeIndex 0) → 2 heat dice;
+  // Level 5 (nodeIndex 4) → 6 heat dice.
+  const heatCount = nodeIndex + 2;
+  const heat: Die[] = [];
+  for (let i = 0; i < heatCount; i += 1) {
+    heat.push({ ...createDie(6, 'heat'), value: null });
+  }
   // Reveal fog around the starting position (start is already revealed).
   const gridRevealed = revealFogAround(grid, grid.start);
   return {
     grid: gridRevealed,
     player: grid.start,
-    pool: [charDie],
-    heat: [heatDie],
+    pool: [charDie, starterD6],
+    heat,
     heatIntents: [],
     hasRolledThisTurn: false,
     turn: 1,
@@ -283,8 +291,11 @@ const initialUI: UIState = { selectedDiceIds: [], message: null };
 interface GameStore extends GameState {
   ui: UIState;
 
+  setScreen: (screen: Screen) => void;
   initRun: (characterId: string) => void;
   selectCharacter: (characterId: string) => void;
+  resetToTitle: () => void;
+  /** @deprecated alias of resetToTitle, kept for back-compat */
   resetToCharacterSelect: () => void;
 
   selectTarget: (targetId: string) => void;
@@ -305,11 +316,13 @@ interface GameStore extends GameState {
   proceedFromOutcome: () => void;
 }
 
-const initialState: GameState = { screen: 'characterSelect' as Screen, run: null };
+const initialState: GameState = { screen: 'title' as Screen, run: null };
 
 export const useGameStore = create<GameStore>((set, get) => ({
   ...initialState,
   ui: initialUI,
+
+  setScreen: (screen) => set({ screen }),
 
   initRun: (characterId) => {
     const character = CHARACTERS.find((c) => c.id === characterId);
@@ -332,6 +345,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
     get().initRun(characterId);
   },
 
+  resetToTitle: () => {
+    set({ ...initialState, ui: initialUI });
+  },
   resetToCharacterSelect: () => {
     set({ ...initialState, ui: initialUI });
   },
@@ -387,9 +403,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
       return;
     }
 
+    // 1) Apply the move + fog reveal.
     const grid = revealFogAround(heist.grid, dest.pos);
     const log = [...heist.log, `Moved to (${dest.pos.row}, ${dest.pos.col}).`];
-    const outcome = detectOutcome(grid, dest.pos);
+    const moveOutcome = detectOutcome(grid, dest.pos);
     set({
       run: {
         ...run,
@@ -398,12 +415,19 @@ export const useGameStore = create<GameStore>((set, get) => ({
           grid,
           player: dest.pos,
           log,
-          outcome: outcome ?? heist.outcome,
+          outcome: moveOutcome ?? heist.outcome,
         },
       },
       ui: { ...state.ui, message: null },
     });
-    if (outcome) postOutcome(outcome);
+    if (moveOutcome) {
+      postOutcome(moveOutcome);
+      return;
+    }
+    // 2) Movement also ends the turn and rerolls the dice — same sequence
+    //    as clicking REROLL. Heat intents fire, fresh roll happens, abilities
+    //    re-charge from the new roll.
+    get().reroll();
   },
 
   rollDice: () => {

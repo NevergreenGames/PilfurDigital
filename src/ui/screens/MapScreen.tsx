@@ -32,11 +32,6 @@ export function MapScreen() {
             </div>
             {t.flavor && <div className="target-flavor">{t.flavor}</div>}
             <div className="target-req">Requirement: {describeRequirement(t.requirement)}</div>
-            <div className="target-dice">
-              {t.momentumDice.map((s, i) => (
-                <DieGlyph key={i} size={s} px={24} />
-              ))}
-            </div>
             <button className="primary" onClick={() => selectTarget(t.id)}>
               PLAN THIS JOB
             </button>

@@ -8,12 +8,38 @@ import {
   TileId,
 } from './types';
 
-const ROWS = 7 as const;
-const COLS = 7 as const;
-const START_POS: Position = { row: 6, col: 3 };
-const MIN_TARGET_DIST = 5;
-const MIN_WALLS = 6;
-const MAX_WALLS = 10;
+// Per-node grid configuration. Earlier nodes use a smaller grid so the first
+// heist is bite-sized; later nodes ramp back up to the full 7x7.
+interface NodeGridConfig {
+  rows: number;
+  cols: number;
+  startPos: Position;
+  minTargetDist: number;
+  minWalls: number;
+  maxWalls: number;
+}
+
+function configForNode(nodeIndex: number): NodeGridConfig {
+  if (nodeIndex === 0) {
+    return {
+      rows: 5,
+      cols: 5,
+      startPos: { row: 4, col: 2 },
+      minTargetDist: 3,
+      minWalls: 3,
+      maxWalls: 5,
+    };
+  }
+  return {
+    rows: 7,
+    cols: 7,
+    startPos: { row: 6, col: 3 },
+    minTargetDist: 5,
+    minWalls: 6,
+    maxWalls: 10,
+  };
+}
+
 const MAX_WALL_ATTEMPTS = 20;
 
 function defaultRng(): number {
@@ -141,7 +167,7 @@ function goalTargetToPhaseCard(target: HeistTarget, nodeIndex: number): PhaseCar
     name: target.name,
     type: 'goal',
     requirement: target.requirement,
-    momentumDice: target.momentumDice,
+    momentumDice: [],
     flavor: target.flavor,
   };
 }
@@ -152,10 +178,18 @@ export function generateGrid(
   goalPool: HeistTarget[],
   rng: () => number = defaultRng,
 ): Grid {
+  const cfg = configForNode(nodeIndex);
+  const ROWS_N = cfg.rows;
+  const COLS_N = cfg.cols;
+  const START_POS: Position = cfg.startPos;
+  const MIN_TARGET_DIST = cfg.minTargetDist;
+  const MIN_WALLS = cfg.minWalls;
+  const MAX_WALLS = cfg.maxWalls;
+
   // 1. Init all tiles as phase/hidden
   const tiles: Tile[] = [];
-  for (let r = 0; r < ROWS; r += 1) {
-    for (let c = 0; c < COLS; c += 1) {
+  for (let r = 0; r < ROWS_N; r += 1) {
+    for (let c = 0; c < COLS_N; c += 1) {
       tiles.push({
         id: tileIdOf({ row: r, col: c }),
         pos: { row: r, col: c },
@@ -178,15 +212,16 @@ export function generateGrid(
 
   // 3. Pick target
   const candidateTargets: Position[] = [];
-  for (let r = 0; r < ROWS; r += 1) {
-    for (let c = 0; c < COLS; c += 1) {
+  for (let r = 0; r < ROWS_N; r += 1) {
+    for (let c = 0; c < COLS_N; c += 1) {
       const p = { row: r, col: c };
       if (p.row === START_POS.row && p.col === START_POS.col) continue;
       if (chebyshev(START_POS, p) >= MIN_TARGET_DIST) candidateTargets.push(p);
     }
   }
+  const fallbackTarget: Position = { row: 0, col: Math.floor(COLS_N / 2) };
   const targetPos =
-    candidateTargets[Math.floor(rng() * candidateTargets.length)] ?? { row: 0, col: 3 };
+    candidateTargets[Math.floor(rng() * candidateTargets.length)] ?? fallbackTarget;
   const targetTile = findTile(tiles, targetPos);
   const goalTier = nodeIndexToGoalTier(nodeIndex);
   const goalCandidates = goalPool.filter((g) => g.tier === goalTier);
@@ -210,8 +245,8 @@ export function generateGrid(
   }
 
   const tempGridShell = (): Grid => ({
-    rows: ROWS,
-    cols: COLS,
+    rows: ROWS_N,
+    cols: COLS_N,
     tiles,
     start: START_POS,
     target: targetPos,

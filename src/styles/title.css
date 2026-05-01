@@ -1,0 +1,82 @@
+/* Title screen styling. */
+
+.title-screen {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse at top, #1c1c2c 0%, #0a0a12 70%) ,
+    var(--bg);
+}
+
+/* Subtle floating dice in the background */
+.title-bg-dice {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.18;
+}
+
+.title-bg-die {
+  position: absolute;
+  color: var(--accent);
+  animation: title-float 8s ease-in-out infinite;
+  filter: drop-shadow(0 0 18px rgba(240, 189, 114, 0.18));
+}
+.title-bg-die:nth-child(2n) { color: var(--phase); animation-duration: 10s; }
+.title-bg-die:nth-child(3n) { color: var(--stash); animation-duration: 11s; }
+.title-bg-die:nth-child(4n) { color: var(--heat); }
+
+@keyframes title-float {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50%      { transform: translateY(-22px) rotate(8deg); }
+}
+
+.title-content {
+  position: relative;
+  z-index: 1;
+  text-align: center;
+  padding: 24px;
+}
+
+.title-wordmark {
+  font-size: 96px;
+  letter-spacing: 18px;
+  margin: 0 0 6px;
+  color: var(--fg);
+  font-weight: 900;
+  text-shadow:
+    0 0 24px rgba(240, 189, 114, 0.18),
+    0 4px 0 #2a2a3c;
+  animation: title-pop 700ms ease-out;
+}
+
+@keyframes title-pop {
+  0%   { transform: translateY(8px) scale(0.96); opacity: 0; }
+  100% { transform: translateY(0)   scale(1);    opacity: 1; }
+}
+
+.title-tagline {
+  font-size: 14px;
+  letter-spacing: 6px;
+  color: var(--muted);
+  text-transform: uppercase;
+  margin: 0 0 36px;
+}
+
+.title-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: stretch;
+  max-width: 280px;
+  margin: 0 auto;
+}
+
+.title-buttons .big {
+  width: 100%;
+  letter-spacing: 4px;
+}

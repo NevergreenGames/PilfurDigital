@@ -17,17 +17,36 @@ interface Props {
 }
 
 // Viewport / camera constants. Must match the CSS (TILE_PX + GAP_PX).
-const VIEWPORT_TILES = 5; // visible window — a 5x5 slice of the 7x7 grid
+const VIEWPORT_TILES = 5; // visible window
 const TILE_PX = 120;
 const GAP_PX = 4;
 const STEP_PX = TILE_PX + GAP_PX;
-const CAMERA_MIN = Math.floor(VIEWPORT_TILES / 2); // 2
-const CAMERA_MAX = 6 - Math.floor(VIEWPORT_TILES / 2); // 4
+const CAMERA_MIN = Math.floor(VIEWPORT_TILES / 2); // 2 — viewport-center offset
 
-function clampCamera(p: Position): Position {
+// Camera bounds depend on the grid's dimensions. When the grid is larger
+// than the viewport (the standard 7x7 case), the camera is clamped so the
+// viewport never shows past the grid edge. When the grid fits inside the
+// viewport (e.g. the 5x5 first heist), the camera is locked to the grid's
+// center so the grid stays centered with no panning available.
+function cameraBoundsFor(rows: number, cols: number): {
+  minR: number;
+  maxR: number;
+  minC: number;
+  maxC: number;
+} {
+  const half = CAMERA_MIN;
+  const minR = Math.min(half, Math.floor((rows - 1) / 2));
+  const maxR = Math.max(minR, rows - 1 - half);
+  const minC = Math.min(half, Math.floor((cols - 1) / 2));
+  const maxC = Math.max(minC, cols - 1 - half);
+  return { minR, maxR, minC, maxC };
+}
+
+function clampCamera(p: Position, rows: number, cols: number): Position {
+  const b = cameraBoundsFor(rows, cols);
   return {
-    row: Math.max(CAMERA_MIN, Math.min(CAMERA_MAX, p.row)),
-    col: Math.max(CAMERA_MIN, Math.min(CAMERA_MAX, p.col)),
+    row: Math.max(b.minR, Math.min(b.maxR, p.row)),
+    col: Math.max(b.minC, Math.min(b.maxC, p.col)),
   };
 }
 
@@ -60,15 +79,15 @@ export function GridView({
   const isOver = !!heist.outcome;
 
   // Camera state.
-  const [camera, setCamera] = useState<Position>(() => clampCamera(player));
+  const [camera, setCamera] = useState<Position>(() => clampCamera(player, grid.rows, grid.cols));
 
   useEffect(() => {
-    setCamera(clampCamera(player));
-  }, [player.row, player.col]);
+    setCamera(clampCamera(player, grid.rows, grid.cols));
+  }, [player.row, player.col, grid.rows, grid.cols]);
 
   const pan = useCallback((dr: number, dc: number) => {
-    setCamera((c) => clampCamera({ row: c.row + dr, col: c.col + dc }));
-  }, []);
+    setCamera((c) => clampCamera({ row: c.row + dr, col: c.col + dc }, grid.rows, grid.cols));
+  }, [grid.rows, grid.cols]);
 
   // Keyboard pan (kept).
   useEffect(() => {
@@ -133,11 +152,14 @@ export function GridView({
       const dx = e.clientX - ref.startX;
       const dy = e.clientY - ref.startY;
       // Clamp to the camera's reachable bounds so the grid can't be dragged
-      // into empty space beyond the world edge.
-      const maxX = (ref.startCamera.col - CAMERA_MIN) * STEP_PX;
-      const minX = -(CAMERA_MAX - ref.startCamera.col) * STEP_PX;
-      const maxY = (ref.startCamera.row - CAMERA_MIN) * STEP_PX;
-      const minY = -(CAMERA_MAX - ref.startCamera.row) * STEP_PX;
+      // into empty space beyond the world edge. Bounds are grid-size-aware:
+      // when the grid fits in the viewport, both min and max collapse to a
+      // single position so the drag is effectively disabled.
+      const bounds = cameraBoundsFor(grid.rows, grid.cols);
+      const maxX = (ref.startCamera.col - bounds.minC) * STEP_PX;
+      const minX = -(bounds.maxC - ref.startCamera.col) * STEP_PX;
+      const maxY = (ref.startCamera.row - bounds.minR) * STEP_PX;
+      const minY = -(bounds.maxR - ref.startCamera.row) * STEP_PX;
       const cdx = Math.max(minX, Math.min(maxX, dx));
       const cdy = Math.max(minY, Math.min(maxY, dy));
       if (Math.abs(dx) > DRAG_THRESHOLD_PX || Math.abs(dy) > DRAG_THRESHOLD_PX) {
@@ -158,7 +180,7 @@ export function GridView({
           clampCamera({
             row: ref.startCamera.row - dRows,
             col: ref.startCamera.col - dCols,
-          }),
+          }, grid.rows, grid.cols),
         );
         wasDragRef.current = true;
         // Clear after the trailing click event has had a tick to fire.
@@ -288,7 +310,7 @@ export function GridView({
 
   // Recenter helper — called when an indicator is clicked.
   const recenterOn = (row: number, col: number) => {
-    setCamera(clampCamera({ row, col }));
+    setCamera(clampCamera({ row, col }, grid.rows, grid.cols));
   };
 
   // ───────────────────────────────────────────────────────────────────────
@@ -358,6 +380,8 @@ export function GridView({
           className="hg-grid"
           role="grid"
           style={{
+            gridTemplateColumns: `repeat(${grid.cols}, ${TILE_PX}px)`,
+            gridTemplateRows: `repeat(${grid.rows}, ${TILE_PX}px)`,
             transform: translate,
             transition: isDragging ? 'none' : undefined,
           }}

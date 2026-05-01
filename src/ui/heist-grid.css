@@ -332,12 +332,24 @@
 .hg-tile--fulfillable {
   cursor: pointer;
   border-color: var(--accent);
+  background: linear-gradient(180deg, rgba(224, 175, 104, 0.22) 0%, rgba(224, 175, 104, 0.08) 100%);
   box-shadow: 0 0 0 2px rgba(224, 175, 104, 0.35);
+}
+
+/* Goal tile keeps its own gold gradient — bump saturation when fulfillable
+   so it still reads as distinct from a fulfillable phase tile. */
+.hg-tile--target.hg-tile--fulfillable {
+  background: linear-gradient(180deg, #5a4a26 0%, #3a311c 100%);
 }
 
 .hg-tile--will-succeed {
   border-color: var(--stash);
+  background: linear-gradient(180deg, rgba(158, 206, 106, 0.30) 0%, rgba(158, 206, 106, 0.10) 100%);
   box-shadow: 0 0 0 3px rgba(158, 206, 106, 0.55);
+}
+
+.hg-tile--target.hg-tile--will-succeed {
+  background: linear-gradient(180deg, rgba(158, 206, 106, 0.35) 0%, #3a311c 100%);
 }
 
 .hg-tile--movable:hover,
@@ -360,11 +372,28 @@
 }
 
 .hg-tile-req {
-  font-size: 10px;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
   color: var(--fg);
-  text-align: right;
+  text-align: center;
   font-weight: bold;
   letter-spacing: 0.5px;
+  line-height: 1;
+  padding: 2px 0;
+}
+
+/* When the player can fulfill, brighten the requirement so it pops against
+   the new tile background. */
+.hg-tile--fulfillable .hg-tile-req {
+  color: var(--accent);
+  text-shadow: 0 0 8px rgba(224, 175, 104, 0.45);
+}
+.hg-tile--will-succeed .hg-tile-req {
+  color: var(--stash);
+  text-shadow: 0 0 8px rgba(158, 206, 106, 0.55);
 }
 
 .hg-tile-name {

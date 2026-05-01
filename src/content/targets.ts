@@ -7,7 +7,6 @@ export const TARGETS: HeistTarget[] = [
     name: 'PRISON BREAK',
     tier: 1,
     requirement: { kind: 'sum', op: 'lt', value: 10, minDice: 5 },
-    momentumDice: [6, 6, 6],
     flavor: 'Five names on the list. Nobody gets left behind.',
   },
   {
@@ -15,7 +14,6 @@ export const TARGETS: HeistTarget[] = [
     name: 'VAULT OF GOLD',
     tier: 1,
     requirement: { kind: 'xOfAKind', count: 5 },
-    momentumDice: [6, 6, 6],
     flavor: 'Dumb, heavy, and exactly as advertised.',
   },
   // The city's oldest private vault. Padded walls, padded stories, old money.
@@ -24,26 +22,23 @@ export const TARGETS: HeistTarget[] = [
     name: 'THE VELVET VAULT',
     tier: 1,
     requirement: { kind: 'sum', op: 'gte', value: 12, minDice: 2 },
-    momentumDice: [6, 6, 6],
     flavor: 'Soft walls, hard locks. The money inside is older than the city.',
   },
   // A hilltop telegraph station — climb it, tap the wire, walk out with the ciphers.
   {
     id: 'rooks-hill-relay',
-    name: 'SIGNAL RELAY ON ROOK\u2019S HILL',
+    name: 'SIGNAL RELAY ON ROOK’S HILL',
     tier: 1,
     requirement: { kind: 'straight', length: 3 },
-    momentumDice: [6, 6, 6],
     flavor: 'Three ciphers in sequence. The operator never hears you come up.',
   },
   // The Baron keeps three identical keys so no servant can guess which
   // unlocks the liquor cabinet. You need all three.
   {
     id: 'barons-brass-key',
-    name: 'THE BARON\u2019S BRASS KEYS',
+    name: 'THE BARON’S BRASS KEYS',
     tier: 1,
     requirement: { kind: 'xOfAKind', count: 3 },
-    momentumDice: [6, 6, 6],
     flavor: 'He had three cut identical, so no servant could guess which.',
   },
 
@@ -53,7 +48,6 @@ export const TARGETS: HeistTarget[] = [
     name: 'ART GALLERY',
     tier: 2,
     requirement: { kind: 'sum', op: 'eq', value: 15, minDice: 4 },
-    momentumDice: [6, 6, 20],
     flavor: 'The forgery is on the wall by morning.',
   },
   {
@@ -61,18 +55,16 @@ export const TARGETS: HeistTarget[] = [
     name: 'CROWN JEWELS',
     tier: 2,
     requirement: { kind: 'sum', op: 'gte', value: 20 },
-    momentumDice: [6, 6, 20],
     flavor: 'Every country wants them. None deserve them.',
   },
   // The off-books book. Names, bribes, and every deal the Mayor pretends not
   // to remember.
   {
     id: 'mayors-black-ledger',
-    name: 'THE MAYOR\u2019S BLACK LEDGER',
+    name: 'THE MAYOR’S BLACK LEDGER',
     tier: 2,
     requirement: { kind: 'sum', op: 'gte', value: 17 },
-    momentumDice: [6, 6, 20],
-    flavor: 'Every bribe, every favor. He thinks it\u2019s in a safer place than it is.',
+    flavor: 'Every bribe, every favor. He thinks it’s in a safer place than it is.',
   },
   // A four-in-hand cash-coach on the north road. The combination is set by
   // the dispatcher and changes every run — sequence it or walk.
@@ -81,7 +73,6 @@ export const TARGETS: HeistTarget[] = [
     name: 'THE IRON COURIER COACH',
     tier: 2,
     requirement: { kind: 'straight', length: 4 },
-    momentumDice: [6, 6, 20],
     flavor: 'Four-in-hand, iron-shod, and the combination rotates on the hour.',
   },
   // A boutique aviary full of automaton birds. The bounty is paid by exact
@@ -91,7 +82,6 @@ export const TARGETS: HeistTarget[] = [
     name: 'THE GLASSHOUSE MENAGERIE',
     tier: 2,
     requirement: { kind: 'sum', op: 'eq', value: 15, minDice: 4 },
-    momentumDice: [6, 6, 20],
     flavor: 'The buyer pays by exact weight. Over or under and the deal walks.',
   },
 
@@ -101,7 +91,6 @@ export const TARGETS: HeistTarget[] = [
     name: 'THE MOON',
     tier: 3,
     requirement: { kind: 'sum', op: 'gte', value: 25 },
-    momentumDice: [6, 6, 6, 20],
     flavor: 'A metaphor. Also literal.',
   },
   {
@@ -109,7 +98,6 @@ export const TARGETS: HeistTarget[] = [
     name: 'ALIEN RELIC',
     tier: 3,
     requirement: { kind: 'xOfAKind', count: 4 },
-    momentumDice: [20, 20],
     flavor: 'Nobody knows what it does. The buyer has cash.',
   },
   // The crown of a dead empire, kept behind ritual and weight. The prize of
@@ -119,7 +107,6 @@ export const TARGETS: HeistTarget[] = [
     name: 'THE OBSIDIAN CROWN',
     tier: 3,
     requirement: { kind: 'sum', op: 'gte', value: 24, minDice: 4 },
-    momentumDice: [6, 6, 6, 20],
     flavor: 'Heavier than it looks. Every king who wore it died wearing it.',
   },
   // Four identical tumblers, each linked to the next. You set them all at
@@ -129,7 +116,6 @@ export const TARGETS: HeistTarget[] = [
     name: 'THE THORNWICK VAULT',
     tier: 3,
     requirement: { kind: 'xOfAKind', count: 4 },
-    momentumDice: [20, 20],
     flavor: 'Four tumblers, one motion. Thornwick built it so greed had to be precise.',
   },
   // A clocktower full of clocks that must be made to chime in order for the
@@ -139,7 +125,6 @@ export const TARGETS: HeistTarget[] = [
     name: 'THE CATHEDRAL OF CLOCKS',
     tier: 3,
     requirement: { kind: 'straight', length: 5 },
-    momentumDice: [6, 6, 6, 20],
     flavor: 'Five bells, in order. The vault behind them opens on the final chime.',
   },
 ];
