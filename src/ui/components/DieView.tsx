@@ -7,6 +7,13 @@ interface Props {
   onClick?: () => void;
   disabled?: boolean;
   ghost?: 'will-consume' | 'will-gain';
+  // Spotlighted by an ability-charge event — the die scales up and glows
+  // gold to advertise itself as "this is one of the dice that just
+  // charged the ability popping in the sidebar".
+  spotlight?: boolean;
+  // Just transformed by an ability activation — the die enlarges, glows
+  // and jiggles for ~750ms so the player sees the effect take hold.
+  impacted?: boolean;
 }
 
 const SOURCE_COLORS: Record<string, string> = {
@@ -33,7 +40,15 @@ const DIE_POLYGONS: Record<DieSize, string> = {
   20: '21,4 39,4 56,21 56,39 39,56 21,56 4,39 4,21',
 };
 
-export function DieView({ die, selected, onClick, disabled, ghost }: Props) {
+export function DieView({
+  die,
+  selected,
+  onClick,
+  disabled,
+  ghost,
+  spotlight,
+  impacted,
+}: Props) {
   const color = SOURCE_COLORS[die.source] ?? '#aaa';
   const points = DIE_POLYGONS[die.size];
 
@@ -44,6 +59,8 @@ export function DieView({ die, selected, onClick, disabled, ghost }: Props) {
     selected ? 'selected' : '',
     disabled ? 'disabled' : '',
     ghost ? `die--${ghost}` : '',
+    spotlight ? 'die--spotlight' : '',
+    impacted ? 'die--impacted' : '',
   ]
     .filter(Boolean)
     .join(' ');

@@ -4,16 +4,21 @@ import {
   HeistTarget,
   PhaseCard,
   Position,
+  Requirement,
   Tile,
   TileId,
 } from './types';
 
-// Per-node grid configuration. Earlier nodes use a smaller grid so the first
-// heist is bite-sized; later nodes ramp back up to the full 7x7.
+// Per-node grid configuration. The grid is one row taller than the playable
+// area: the bottom row is a "porch" that contains a single start tile in the
+// middle column, with the rest of that row marked as `void` (invisible
+// spacer) tiles. The player spawns on the porch and steps UP onto the
+// playable grid on their first move.
 interface NodeGridConfig {
-  rows: number;
+  rows: number;          // includes the porch row
   cols: number;
-  startPos: Position;
+  playableRows: number;  // rows of the playable area (top of the grid)
+  startPos: Position;    // spawn — sits on the porch row, middle column
   minTargetDist: number;
   minWalls: number;
   maxWalls: number;
@@ -22,18 +27,20 @@ interface NodeGridConfig {
 function configForNode(nodeIndex: number): NodeGridConfig {
   if (nodeIndex === 0) {
     return {
-      rows: 5,
+      rows: 6,
       cols: 5,
-      startPos: { row: 4, col: 2 },
+      playableRows: 5,
+      startPos: { row: 5, col: 2 },
       minTargetDist: 3,
       minWalls: 3,
       maxWalls: 5,
     };
   }
   return {
-    rows: 7,
+    rows: 8,
     cols: 7,
-    startPos: { row: 6, col: 3 },
+    playableRows: 7,
+    startPos: { row: 7, col: 3 },
     minTargetDist: 5,
     minWalls: 6,
     maxWalls: 10,
@@ -166,9 +173,77 @@ function goalTargetToPhaseCard(target: HeistTarget, nodeIndex: number): PhaseCar
     id: `${target.id}#goal-${nodeIndex}`,
     name: target.name,
     type: 'goal',
+    icon: target.icon,
     requirement: target.requirement,
     momentumDice: [],
     flavor: target.flavor,
+  };
+}
+
+// Cache templates — bonus-creds tiles placed off the main path. Their
+// requirements span the same primitives as phase cards so the same
+// auto-pick / will-succeed logic surfaces them naturally; the reward
+// scales with the difficulty of the requirement.
+interface CacheTemplate {
+  name: string;
+  icon: string;
+  requirement: Requirement;
+  reward: number;
+  flavor?: string;
+}
+
+const CACHE_TEMPLATES: CacheTemplate[] = [
+  {
+    name: 'STASH BOX',
+    icon: '💰',
+    requirement: { kind: 'sum', op: 'gte', value: 7, minDice: 2 },
+    reward: 3,
+    flavor: 'Loose creds someone forgot to bank.',
+  },
+  {
+    name: 'WALL SAFE',
+    icon: '🔐',
+    requirement: { kind: 'xOfAKind', count: 3 },
+    reward: 4,
+    flavor: 'Three tumblers, all the same. Sloppy work, easy take.',
+  },
+  {
+    name: 'HIDDEN POUCH',
+    icon: '👜',
+    requirement: { kind: 'sum', op: 'gte', value: 11, minDice: 2 },
+    reward: 4,
+    flavor: 'Sewn into a coat lining. The owner has bigger problems.',
+  },
+  {
+    name: 'BURIED CACHE',
+    icon: '💼',
+    requirement: { kind: 'straight', length: 3 },
+    reward: 5,
+    flavor: 'Three keys, in order, and the floorboard lifts.',
+  },
+  {
+    name: 'PETTY TILL',
+    icon: '🪙',
+    requirement: { kind: 'sum', op: 'gte', value: 5, minDice: 1 },
+    reward: 2,
+    flavor: 'Just the day\'s float — but every cred helps.',
+  },
+];
+
+function cacheTemplateToCard(
+  tpl: CacheTemplate,
+  nodeIndex: number,
+  pos: Position,
+): PhaseCard {
+  return {
+    id: `cache-${tpl.name.replace(/\s+/g, '_')}#r${pos.row}c${pos.col}-${nodeIndex}`,
+    name: tpl.name,
+    type: 'phase',
+    icon: tpl.icon,
+    requirement: tpl.requirement,
+    momentumDice: [],
+    flavor: tpl.flavor,
+    cacheReward: tpl.reward,
   };
 }
 
@@ -181,12 +256,13 @@ export function generateGrid(
   const cfg = configForNode(nodeIndex);
   const ROWS_N = cfg.rows;
   const COLS_N = cfg.cols;
+  const PLAYABLE_ROWS = cfg.playableRows;
   const START_POS: Position = cfg.startPos;
   const MIN_TARGET_DIST = cfg.minTargetDist;
   const MIN_WALLS = cfg.minWalls;
   const MAX_WALLS = cfg.maxWalls;
 
-  // 1. Init all tiles as phase/hidden
+  // 1. Init all tiles as phase/hidden.
   const tiles: Tile[] = [];
   for (let r = 0; r < ROWS_N; r += 1) {
     for (let c = 0; c < COLS_N; c += 1) {
@@ -201,7 +277,17 @@ export function generateGrid(
     }
   }
 
-  // 2. Mark start
+  // 2. Mark the porch row. Every tile in the porch row (rows ≥
+  //    PLAYABLE_ROWS) is `void` — an invisible spacer slot that the grid
+  //    layout reserves but the GridView does not render — except the
+  //    single start tile in the middle, which is the player's spawn. From
+  //    the porch the only viable move is UP onto the playable grid.
+  for (const t of tiles) {
+    if (t.pos.row >= PLAYABLE_ROWS) {
+      t.kind = 'void';
+      t.state = 'revealed';
+    }
+  }
   const startTile = findTile(tiles, START_POS);
   if (startTile) {
     startTile.kind = 'start';
@@ -209,13 +295,25 @@ export function generateGrid(
     startTile.tier = 0;
     startTile.card = null;
   }
+  // The tile directly above the porch start is a guaranteed open
+  // landing — kind='start' so it's walkable, revealed, and never gets a
+  // phase card. The player's first move always has a clear, no-roll
+  // destination directly forward.
+  const openLandingPos: Position = { row: START_POS.row - 1, col: START_POS.col };
+  const openLandingTile = findTile(tiles, openLandingPos);
+  if (openLandingTile && openLandingTile.kind === 'phase') {
+    openLandingTile.kind = 'start';
+    openLandingTile.state = 'revealed';
+    openLandingTile.tier = 0;
+    openLandingTile.card = null;
+  }
 
-  // 3. Pick target
+  // 3. Pick target — must be at least MIN_TARGET_DIST away from the start.
+  //    Confined to the playable area; the porch row is off-limits.
   const candidateTargets: Position[] = [];
-  for (let r = 0; r < ROWS_N; r += 1) {
+  for (let r = 0; r < PLAYABLE_ROWS; r += 1) {
     for (let c = 0; c < COLS_N; c += 1) {
       const p = { row: r, col: c };
-      if (p.row === START_POS.row && p.col === START_POS.col) continue;
       if (chebyshev(START_POS, p) >= MIN_TARGET_DIST) candidateTargets.push(p);
     }
   }
@@ -236,10 +334,12 @@ export function generateGrid(
     targetTile.card = goalTargetToPhaseCard(goalSource, nodeIndex);
   }
 
-  // 4. Walls — retry loop for BFS reachability.
+  // 4. Walls — retry loop for BFS reachability. Confined to the playable
+  //    area; the porch row stays untouched (start + voids only).
   const wallCount = pickInt(rng, MIN_WALLS, MAX_WALLS);
   const nonReserved: Position[] = [];
   for (const t of tiles) {
+    if (t.pos.row >= PLAYABLE_ROWS) continue;
     if (t.kind === 'start' || t.kind === 'target') continue;
     nonReserved.push(t.pos);
   }
@@ -277,8 +377,12 @@ export function generateGrid(
       }
     }
 
-    // BFS reachability from start to target over non-wall tiles
-    const reachable = bfsReachable(tempGridShell(), START_POS, (tt) => tt.kind !== 'wall');
+    // BFS reachability from start to target over non-wall, non-void tiles.
+    const reachable = bfsReachable(
+      tempGridShell(),
+      START_POS,
+      (tt) => tt.kind !== 'wall' && tt.kind !== 'void',
+    );
     const targetId = tileIdOf(targetPos);
     if (reachable.has(targetId)) break;
 
@@ -336,6 +440,36 @@ export function generateGrid(
       id: `${base.id}#r${t.pos.row}c${t.pos.col}`,
       momentumDice: scaled,
     };
+  }
+
+  // 8. Cache tile placement. Off-the-beaten-path bonus-cred tiles —
+  //    converted from already-card'd phase tiles. Eligibility:
+  //      • Chebyshev distance from start ≥ MIN_CACHE_DIST_FROM_START
+  //      • Chebyshev distance from target ≥ MIN_CACHE_DIST_FROM_TARGET
+  //    Picks N candidates at random and overwrites their card with a
+  //    cache template. Heat targeting / heat fulfillment treats them
+  //    like any other phase tile; only the player's fulfill awards the
+  //    cred bounty (handled in gameStore.playerFulfillTile).
+  const CACHE_COUNT = nodeIndex === 0 ? 1 : 2;
+  const MIN_CACHE_DIST_FROM_START = nodeIndex === 0 ? 2 : 4;
+  const MIN_CACHE_DIST_FROM_TARGET = 2;
+  const cacheCandidates: Tile[] = [];
+  for (const t of tiles) {
+    if (t.kind !== 'phase') continue;
+    if (!t.card) continue;
+    if (chebyshev(t.pos, START_POS) < MIN_CACHE_DIST_FROM_START) continue;
+    if (chebyshev(t.pos, targetPos) < MIN_CACHE_DIST_FROM_TARGET) continue;
+    cacheCandidates.push(t);
+  }
+  // Shuffle candidates and pick the first N.
+  for (let i = cacheCandidates.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rng() * (i + 1));
+    [cacheCandidates[i], cacheCandidates[j]] = [cacheCandidates[j], cacheCandidates[i]];
+  }
+  const placed = cacheCandidates.slice(0, CACHE_COUNT);
+  for (const t of placed) {
+    const tpl = CACHE_TEMPLATES[Math.floor(rng() * CACHE_TEMPLATES.length)];
+    t.card = cacheTemplateToCard(tpl, nodeIndex, t.pos);
   }
 
   return tempGridShell();

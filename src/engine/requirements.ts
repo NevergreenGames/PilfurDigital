@@ -35,7 +35,13 @@ function opPass(op: RequirementOp, actual: number, target: number): boolean {
   }
 }
 
-export function findSumSubset(dice: Die[], op: RequirementOp, target: number, minDice = 1): Die[] | null {
+export function findSumSubset(
+  dice: Die[],
+  op: RequirementOp,
+  target: number,
+  minDice = 1,
+  mustIncludeIds?: Set<string>,
+): Die[] | null {
   const rolled = dice.filter((d) => d.value !== null);
   if (rolled.length < minDice) return null;
 
@@ -48,17 +54,21 @@ export function findSumSubset(dice: Die[], op: RequirementOp, target: number, mi
   // for gte/gt/eq use the subset with the smallest sum; for lt/lte use the
   // one with the largest sum (uses up lower-value dice first).
   const tiebreakPreferLower = op !== 'lt' && op !== 'lte';
+  const filterActive = !!mustIncludeIds && mustIncludeIds.size > 0;
 
   for (let mask = 1; mask < 1 << n; mask += 1) {
     const subset: Die[] = [];
     let s = 0;
+    let hasMust = !filterActive;
     for (let i = 0; i < n; i += 1) {
       if (mask & (1 << i)) {
         subset.push(rolled[i]);
         s += rolled[i].value ?? 0;
+        if (filterActive && mustIncludeIds!.has(rolled[i].id)) hasMust = true;
       }
     }
     if (subset.length < minDice) continue;
+    if (!hasMust) continue;
     if (!opPass(op, s, target)) continue;
 
     if (!best || subset.length < best.length) {
@@ -77,7 +87,11 @@ export function findSumSubset(dice: Die[], op: RequirementOp, target: number, mi
   return best;
 }
 
-function findKindSubset(dice: Die[], count: number): Die[] | null {
+function findKindSubset(
+  dice: Die[],
+  count: number,
+  mustIncludeIds?: Set<string>,
+): Die[] | null {
   const rolled = dice.filter((d) => d.value !== null);
   const buckets = new Map<number, Die[]>();
   for (const d of rolled) {
@@ -85,18 +99,43 @@ function findKindSubset(dice: Die[], count: number): Die[] | null {
     if (!buckets.has(v)) buckets.set(v, []);
     buckets.get(v)!.push(d);
   }
+  const filterActive = !!mustIncludeIds && mustIncludeIds.size > 0;
   for (const group of buckets.values()) {
-    if (group.length >= count) return group.slice(0, count);
+    if (group.length < count) continue;
+    if (filterActive) {
+      const includeInGroup = group.filter((d) => mustIncludeIds!.has(d.id));
+      if (includeInGroup.length === 0) continue;
+      const others = group.filter((d) => !mustIncludeIds!.has(d.id));
+      return [...includeInGroup, ...others].slice(0, count);
+    }
+    return group.slice(0, count);
   }
   return null;
 }
 
-function findStraightSubset(dice: Die[], length: number): Die[] | null {
+function findStraightSubset(
+  dice: Die[],
+  length: number,
+  mustIncludeIds?: Set<string>,
+): Die[] | null {
   const rolled = dice.filter((d) => d.value !== null);
+  const filterActive = !!mustIncludeIds && mustIncludeIds.size > 0;
+  // Bias byValue toward must-include dice for shared values, so the
+  // straight that's returned uses the character die for its value
+  // whenever possible.
   const byValue = new Map<number, Die>();
   for (const d of rolled) {
     const v = d.value as number;
-    if (!byValue.has(v)) byValue.set(v, d);
+    const existing = byValue.get(v);
+    if (!existing) {
+      byValue.set(v, d);
+    } else if (
+      filterActive &&
+      mustIncludeIds!.has(d.id) &&
+      !mustIncludeIds!.has(existing.id)
+    ) {
+      byValue.set(v, d);
+    }
   }
   const values = [...byValue.keys()].sort((a, b) => a - b);
   for (let i = 0; i <= values.length - length; i += 1) {
@@ -107,17 +146,42 @@ function findStraightSubset(dice: Die[], length: number): Die[] | null {
         break;
       }
     }
-    if (ok) {
-      return Array.from({ length }, (_, k) => byValue.get(values[i] + k)!);
+    if (!ok) continue;
+    const window = Array.from({ length }, (_, k) => byValue.get(values[i] + k)!);
+    if (filterActive) {
+      const hasMust = window.some((d) => mustIncludeIds!.has(d.id));
+      if (!hasMust) continue;
     }
+    return window;
   }
   return null;
 }
 
+// Internal helper that dispatches by requirement kind.
+function findInner(
+  dice: Die[],
+  req: Requirement,
+  mustIncludeIds?: Set<string>,
+): Die[] | null {
+  if (req.kind === 'sum') return findSumSubset(dice, req.op, req.value, req.minDice, mustIncludeIds);
+  if (req.kind === 'xOfAKind') return findKindSubset(dice, req.count, mustIncludeIds);
+  return findStraightSubset(dice, req.length, mustIncludeIds);
+}
+
 export function findSatisfyingSubset(dice: Die[], req: Requirement): Die[] | null {
-  if (req.kind === 'sum') return findSumSubset(dice, req.op, req.value, req.minDice);
-  if (req.kind === 'xOfAKind') return findKindSubset(dice, req.count);
-  return findStraightSubset(dice, req.length);
+  // Prefer subsets that include the player's character die — keeps it
+  // rolling so it can max-roll and level up. If no satisfying subset
+  // includes a character die, fall back to the regular search.
+  const charIds = new Set(
+    dice
+      .filter((d) => d.source === 'character' && d.value !== null)
+      .map((d) => d.id),
+  );
+  if (charIds.size > 0) {
+    const withChar = findInner(dice, req, charIds);
+    if (withChar) return withChar;
+  }
+  return findInner(dice, req);
 }
 
 export function isSubsetSatisfying(subset: Die[], req: Requirement): boolean {

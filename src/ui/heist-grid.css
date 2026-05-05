@@ -200,6 +200,18 @@
   cursor: default;
 }
 
+/* Void tiles are invisible spacer slots on the porch row beneath the
+   playable area. They reserve grid space so the lone start tile sits
+   centered below the playable grid, but render as empty so the start
+   reads as floating below the grid edge. */
+.hg-tile--void {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .hg-tile--start {
   background: var(--bg-3);
   border-color: var(--stash);
@@ -213,6 +225,67 @@
   background: linear-gradient(180deg, #4a3e22 0%, #322a18 100%);
   border-color: var(--accent);
   box-shadow: inset 0 0 0 2px rgba(240, 189, 114, 0.45);
+}
+
+/* Cache tiles — bonus-cred bounty tiles. Distinct gold-tinged
+   background so they read as off-the-beaten-path side jobs without
+   overpowering the actionable-tile ring (movable / fulfillable /
+   will-succeed still take priority via cascade order). The gold
+   border persists even when the tile is still under fog — caches
+   are advertised from the start of the heist; only their
+   requirement and specific card details wait for normal fog reveal. */
+.hg-tile--cache {
+  background:
+    linear-gradient(180deg, rgba(240, 189, 114, 0.10) 0%, rgba(240, 189, 114, 0.02) 100%),
+    var(--bg-3);
+  border: 2px solid var(--accent);
+}
+/* Hidden cache: keep the gold border + a darkened fog-friendly
+   backing so the tile still reads as obscured, but the bullion-coloured
+   frame and the centered ¢ glyph make it unmistakable as a cache. */
+.hg-tile--cache.hg-tile--hidden {
+  background:
+    linear-gradient(180deg, rgba(240, 189, 114, 0.18) 0%, rgba(20, 20, 30, 0.85) 100%),
+    #050509;
+  border: 2px solid var(--accent);
+  color: var(--accent);
+}
+/* Cache reward badge — pinned to the bottom-center of the tile so it
+   reads as the unmistakable bounty for cracking this particular cache.
+   Big, gold-on-gold gradient, glowing border so the player's eye lands
+   on it the moment the requirement above is met. */
+.hg-tile-cache-badge {
+  position: absolute;
+  bottom: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 16px;
+  font-weight: bold;
+  letter-spacing: 1px;
+  color: #1a1208;
+  background: linear-gradient(180deg, #f6cd80 0%, #e0af68 100%);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  padding: 2px 12px;
+  line-height: 1.1;
+  white-space: nowrap;
+  box-shadow:
+    0 0 12px rgba(240, 189, 114, 0.85),
+    0 1px 0 rgba(255, 255, 255, 0.35) inset;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.45);
+  pointer-events: none;
+  z-index: 2;
+}
+.hg-hover-card-badge--cache {
+  background: var(--bg-3);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+.hg-hover-card-cache {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: bold;
+  letter-spacing: 0.5px;
 }
 
 .hg-tile--playerFulfilled {
@@ -322,40 +395,117 @@
   100% { transform: scale(1); opacity: 1; }
 }
 
-/* Affordance outlines */
+/* ─── Affordance outlines ──────────────────────────────────────────────
+   Movable / fulfillable tiles have to read AT A GLANCE so the player
+   never has to hunt for their next move. We do this two ways:
+
+   1. Reachable tiles get a thick coloured ring, an animated outer glow
+      and a slight lift so they pop forward in the visual hierarchy.
+   2. Every other in-grid tile (revealed phases, fulfilled tiles, walls,
+      hidden fog) is desaturated and dimmed via the
+      `.hg-grid--has-actions` filter, so the bright candidates stand
+      out against a muted backdrop. The class is applied by GridView
+      whenever at least one tile is movable / fulfillable.            */
+
 .hg-tile--movable {
   cursor: pointer;
-  border-color: var(--phase);
-  box-shadow: 0 0 0 2px rgba(122, 162, 247, 0.35);
+  border: 3px solid var(--phase);
+  background: linear-gradient(180deg, rgba(122, 162, 247, 0.30) 0%, rgba(122, 162, 247, 0.08) 100%);
+  box-shadow:
+    0 0 0 4px rgba(122, 162, 247, 0.45),
+    0 0 22px rgba(122, 162, 247, 0.55);
+  transform: translateY(-2px);
+  animation: hg-tile-movable-pulse 1.6s ease-in-out infinite;
+  z-index: 3;
+}
+@keyframes hg-tile-movable-pulse {
+  0%, 100% {
+    box-shadow:
+      0 0 0 4px rgba(122, 162, 247, 0.40),
+      0 0 16px rgba(122, 162, 247, 0.45);
+  }
+  50% {
+    box-shadow:
+      0 0 0 5px rgba(122, 162, 247, 0.65),
+      0 0 30px rgba(122, 162, 247, 0.85);
+  }
 }
 
+/* Fulfillable but not will-succeed (yellow) — the requirement is *not*
+   currently met. Reads as "available, but probably skip" — softer
+   border, subdued background, gentle slow pulse. Will-succeed
+   (green) overrides this in the cascade with its own bolder pulse. */
 .hg-tile--fulfillable {
   cursor: pointer;
-  border-color: var(--accent);
-  background: linear-gradient(180deg, rgba(224, 175, 104, 0.22) 0%, rgba(224, 175, 104, 0.08) 100%);
-  box-shadow: 0 0 0 2px rgba(224, 175, 104, 0.35);
+  border: 2px solid rgba(224, 175, 104, 0.75);
+  background: linear-gradient(180deg, rgba(224, 175, 104, 0.16) 0%, rgba(224, 175, 104, 0.05) 100%);
+  box-shadow: 0 0 0 2px rgba(224, 175, 104, 0.22);
+  transform: translateY(-1px);
+  animation: hg-tile-fulfillable-pulse 2.4s ease-in-out infinite;
+  z-index: 2;
+}
+@keyframes hg-tile-fulfillable-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 2px rgba(224, 175, 104, 0.18);
+  }
+  50% {
+    box-shadow:
+      0 0 0 3px rgba(224, 175, 104, 0.35),
+      0 0 10px rgba(224, 175, 104, 0.30);
+  }
 }
 
 /* Goal tile keeps its own gold gradient — bump saturation when fulfillable
    so it still reads as distinct from a fulfillable phase tile. */
 .hg-tile--target.hg-tile--fulfillable {
-  background: linear-gradient(180deg, #5a4a26 0%, #3a311c 100%);
+  background: linear-gradient(180deg, #6a5630 0%, #3a311c 100%);
 }
 
 .hg-tile--will-succeed {
-  border-color: var(--stash);
-  background: linear-gradient(180deg, rgba(158, 206, 106, 0.30) 0%, rgba(158, 206, 106, 0.10) 100%);
-  box-shadow: 0 0 0 3px rgba(158, 206, 106, 0.55);
+  border: 3px solid var(--stash);
+  background: linear-gradient(180deg, rgba(158, 206, 106, 0.45) 0%, rgba(158, 206, 106, 0.15) 100%);
+  box-shadow:
+    0 0 0 5px rgba(158, 206, 106, 0.65),
+    0 0 32px rgba(158, 206, 106, 0.85);
+  transform: translateY(-3px);
+  animation: hg-tile-will-succeed-pulse 1.2s ease-in-out infinite;
+  z-index: 4;
+}
+@keyframes hg-tile-will-succeed-pulse {
+  0%, 100% {
+    box-shadow:
+      0 0 0 5px rgba(158, 206, 106, 0.60),
+      0 0 22px rgba(158, 206, 106, 0.70);
+  }
+  50% {
+    box-shadow:
+      0 0 0 6px rgba(158, 206, 106, 0.85),
+      0 0 40px rgba(158, 206, 106, 1);
+  }
 }
 
 .hg-tile--target.hg-tile--will-succeed {
-  background: linear-gradient(180deg, rgba(158, 206, 106, 0.35) 0%, #3a311c 100%);
+  background: linear-gradient(180deg, rgba(158, 206, 106, 0.50) 0%, #3a311c 100%);
 }
 
 .hg-tile--movable:hover,
 .hg-tile--fulfillable:hover {
-  transform: translateY(-1px);
-  filter: brightness(1.1);
+  transform: translateY(-3px) scale(1.03);
+  filter: brightness(1.15);
+}
+
+/* Backdrop dim — when at least one tile on the grid is actionable, every
+   non-actionable tile is desaturated and dimmed so the candidate moves
+   read in sharp contrast against the dim chrome. The actionable tiles
+   themselves opt out via the cascade (their own selectors come after). */
+.hg-grid--has-actions .hg-tile {
+  filter: saturate(0.55) brightness(0.7);
+  transition: filter 220ms ease-out;
+}
+.hg-grid--has-actions .hg-tile--movable,
+.hg-grid--has-actions .hg-tile--fulfillable,
+.hg-grid--has-actions .hg-tile--will-succeed {
+  filter: none;
 }
 
 /* Tile content layout */
@@ -458,6 +608,47 @@
     rgba(18, 14, 6, 0.75) 8px
   );
   color: var(--accent);
+}
+
+/* Cache peek — same fog treatment as target peek but with a large
+   centered ¢ glyph so the player can identify cache tiles at a glance
+   without the tile being fully revealed. */
+.hg-tile-fog--cache-peek {
+  background: repeating-linear-gradient(
+    135deg,
+    rgba(30, 22, 6, 0.45),
+    rgba(30, 22, 6, 0.45) 4px,
+    rgba(18, 14, 6, 0.65) 4px,
+    rgba(18, 14, 6, 0.65) 8px
+  );
+  color: var(--accent);
+  font-size: 56px;
+  font-weight: bold;
+  letter-spacing: -2px;
+  line-height: 1;
+  text-shadow:
+    0 0 12px rgba(240, 189, 114, 0.85),
+    0 0 24px rgba(240, 189, 114, 0.45);
+}
+
+/* Faint reroll glyph on walkable adjacent tiles. Clicking the tile
+   moves the player onto it AND triggers an end-of-turn reroll. The
+   glyph is intentionally low-opacity so it reads as an affordance hint,
+   not a primary visual. Tile hover bumps the opacity. */
+.hg-tile-reroll-glyph {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--phase);
+  opacity: 0.32;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+.hg-tile--movable:hover .hg-tile-reroll-glyph,
+.hg-tile--fulfillable:hover .hg-tile-reroll-glyph {
+  opacity: 0.8;
 }
 
 /* Player pawn overlay */
@@ -653,6 +844,77 @@
   padding: 10px;
 }
 
+/* Ability-impact: the dice an ability just transformed enlarge, glow
+   gold, and jiggle for ~750ms. Drives the cause-effect signal — the
+   player sees exactly which dice the ability hit. The
+   `.hg-dice-row .die--impacted` form bumps specificity above the
+   roll-jiggle rule (`.hg-dice-row--jiggling .die`) so the impact
+   animation wins even if a fresh roll's jiggle is still in flight. */
+.hg-dice-row .die.die--impacted {
+  animation: hg-die-impact 0.72s cubic-bezier(0.36, 0.07, 0.19, 0.97);
+  z-index: 6;
+  position: relative;
+  filter:
+    drop-shadow(0 0 12px rgba(240, 189, 114, 1))
+    drop-shadow(0 0 26px rgba(240, 189, 114, 0.8));
+}
+@keyframes hg-die-impact {
+  0%   { transform: scale(1) rotate(0); }
+  15%  { transform: scale(1.55) rotate(-12deg); }
+  30%  { transform: scale(1.45) rotate(10deg); }
+  45%  { transform: scale(1.5) rotate(-8deg); }
+  60%  { transform: scale(1.42) rotate(6deg); }
+  75%  { transform: scale(1.46) rotate(-3deg); }
+  100% { transform: scale(1) rotate(0); }
+}
+
+/* Charge-event spotlight: the dice in the pool that satisfied the
+   currently-popping ability's trigger scale up and glow gold. Layered on
+   top of selected/ghost states. */
+.die.die--spotlight {
+  animation: hg-die-spotlight 1.05s ease-in-out;
+  z-index: 5;
+  position: relative;
+  filter:
+    drop-shadow(0 0 10px rgba(240, 189, 114, 0.95))
+    drop-shadow(0 0 22px rgba(240, 189, 114, 0.65));
+}
+@keyframes hg-die-spotlight {
+  0%   { transform: scale(1) rotate(0); }
+  20%  { transform: scale(1.42) rotate(-6deg); }
+  45%  { transform: scale(1.34) rotate(4deg); }
+  70%  { transform: scale(1.36) rotate(-2deg); }
+  100% { transform: scale(1) rotate(0); }
+}
+
+/* Roll jiggle — the cup shakes (parent translates/rotates) and the dice
+   inside tumble (children rotate / scale) when a fresh roll lands. Both
+   pools (pool + heat) play in unison on each roll. */
+.hg-dice-row--jiggling {
+  animation: hg-pool-jiggle 0.65s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+  transform-origin: center;
+}
+.hg-dice-row--jiggling .die {
+  animation: hg-die-tumble 0.65s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+@keyframes hg-pool-jiggle {
+  0%, 100% { transform: translate(0, 0) rotate(0); }
+  10%      { transform: translate(-3px, -1px) rotate(-1.5deg); }
+  20%      { transform: translate(3px, 1px) rotate(1.5deg); }
+  35%      { transform: translate(-2px, 0) rotate(-1deg); }
+  50%      { transform: translate(2px, 0) rotate(1deg); }
+  65%      { transform: translate(-1px, 0) rotate(-0.5deg); }
+  80%      { transform: translate(1px, 0) rotate(0.5deg); }
+}
+@keyframes hg-die-tumble {
+  0%   { transform: rotate(0) scale(1); }
+  20%  { transform: rotate(-22deg) scale(1.08); }
+  45%  { transform: rotate(28deg) scale(0.92); }
+  70%  { transform: rotate(-14deg) scale(1.04); }
+  85%  { transform: rotate(8deg) scale(0.98); }
+  100% { transform: rotate(0) scale(1); }
+}
+
 .hg-dice-summary {
   display: flex;
   justify-content: space-between;
@@ -708,6 +970,14 @@
   letter-spacing: 1px;
   color: var(--accent);
   font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.hg-ability-icon {
+  font-size: 16px;
+  line-height: 1;
+  filter: drop-shadow(0 0 4px rgba(224, 175, 104, 0.45));
 }
 
 /* PRIMARY — main effect. Dominates the card. */
@@ -761,6 +1031,59 @@
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent) inset;
 }
+
+/* Charge-gained pop — the whole card squashes / scales out in a
+   celebratory bounce, the badge flashes gold, and three sparkles fly
+   outward. Triggered every time the charge count increases. */
+.hg-ability {
+  position: relative; /* anchor sparkle absolute positioning */
+}
+.hg-ability--popping {
+  animation: hg-ability-pop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+@keyframes hg-ability-pop {
+  0%   { transform: scale(1); }
+  20%  { transform: scale(1.08); box-shadow: 0 0 0 2px var(--accent) inset, 0 0 24px rgba(224, 175, 104, 0.85); }
+  50%  { transform: scale(0.98); }
+  75%  { transform: scale(1.03); box-shadow: 0 0 0 2px var(--accent) inset, 0 0 14px rgba(224, 175, 104, 0.55); }
+  100% { transform: scale(1); }
+}
+.hg-ability-charges--popping {
+  animation: hg-charge-badge-pop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+@keyframes hg-charge-badge-pop {
+  0%   { transform: scale(1); }
+  30%  { transform: scale(1.6) rotate(-8deg); color: #fff; background: #e0af68; }
+  60%  { transform: scale(0.95) rotate(4deg); }
+  100% { transform: scale(1) rotate(0); }
+}
+.hg-ability-sparkles {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  z-index: 10;
+}
+.hg-ability-sparkle {
+  position: absolute;
+  font-size: 14px;
+  opacity: 0;
+  animation: hg-ability-sparkle-fly 0.7s ease-out both;
+  filter: drop-shadow(0 0 6px rgba(224, 175, 104, 0.85));
+}
+.hg-ability-sparkle--1 { animation-delay: 0ms;   color: #e0af68; }
+.hg-ability-sparkle--2 { animation-delay: 60ms;  color: #f7e7a8; }
+.hg-ability-sparkle--3 { animation-delay: 120ms; color: #e0af68; }
+@keyframes hg-ability-sparkle-fly {
+  0%   { transform: translate(0, 0) scale(0.4); opacity: 0; }
+  20%  { opacity: 1; }
+  100% { transform: var(--sparkle-end, translate(-26px, -22px)) scale(1.1); opacity: 0; }
+}
+.hg-ability-sparkle--1 { --sparkle-end: translate(-30px, -22px) rotate(-30deg); }
+.hg-ability-sparkle--2 { --sparkle-end: translate(0, -32px)     rotate(0deg);   }
+.hg-ability-sparkle--3 { --sparkle-end: translate(28px, -20px)  rotate(28deg);  }
 .hg-ability--waiting {
   border-color: var(--phase);
   box-shadow: 0 0 0 1px var(--phase) inset, 0 0 12px rgba(138, 178, 255, 0.45);

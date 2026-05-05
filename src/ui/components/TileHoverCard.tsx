@@ -48,8 +48,14 @@ export function TileHoverCard({ card, anchor }: Props) {
       <div className="hg-hover-card-name">
         {card.name}
         {card.type === 'goal' && <span className="hg-hover-card-badge">TARGET</span>}
+        {card.cacheReward ? (
+          <span className="hg-hover-card-badge hg-hover-card-badge--cache">CACHE</span>
+        ) : null}
       </div>
       <div className="hg-hover-card-req">{describeRequirement(card.requirement)}</div>
+      {card.cacheReward ? (
+        <div className="hg-hover-card-cache">+¢ {card.cacheReward} on fulfill</div>
+      ) : null}
       {card.onPlayEffect && (
         <div className="hg-hover-card-effect">✦ {card.onPlayEffect.text}</div>
       )}

@@ -19,7 +19,10 @@ export function MapScreen() {
           Node {run.nodeIndex + 1} / {TOTAL_NODES} {isFinal && '· FINAL HEIST'}
         </div>
         <div>
-          Heat: {run.heat.length} · Abilities: {run.abilities.length}
+          <span className="creds-pill" title="Creds — spent on abilities between jobs">
+            ¢ {run.creds}
+          </span>{' '}
+          · Heat: {run.heat.length} · Abilities: {run.abilities.length}
         </div>
       </header>
       <h2>Pick the job.</h2>
@@ -27,11 +30,17 @@ export function MapScreen() {
         {node.targetChoices.map((t) => (
           <div key={t.id} className={`target-card tier-${t.tier}`}>
             <div className="target-header">
-              <div className="target-name">{t.name}</div>
+              <div className="target-name">
+                <span className="target-icon" aria-hidden>{t.icon}</span>
+                {t.name}
+              </div>
               <div className="target-tier">Tier {t.tier}</div>
             </div>
             {t.flavor && <div className="target-flavor">{t.flavor}</div>}
             <div className="target-req">Requirement: {describeRequirement(t.requirement)}</div>
+            <div className="target-reward" title="Creds awarded on success">
+              Payout: <strong>¢ {t.credsReward}</strong>
+            </div>
             <button className="primary" onClick={() => selectTarget(t.id)}>
               PLAN THIS JOB
             </button>

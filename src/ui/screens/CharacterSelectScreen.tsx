@@ -18,7 +18,10 @@ export function CharacterSelectScreen() {
             </div>
             {c.flavor && <div className="character-flavor">{c.flavor}</div>}
             <div className="character-ability">
-              <div className="ability-name">{c.ability.name}</div>
+              <div className="ability-name">
+                <span className="ability-icon" aria-hidden>{c.ability.icon}</span>
+                {c.ability.name}
+              </div>
               <div className="ability-effect">{withDieGlyphs(c.ability.text)}</div>
               <div className="ability-trigger">
                 <span className="ability-trigger-label">Charges on</span>{' '}

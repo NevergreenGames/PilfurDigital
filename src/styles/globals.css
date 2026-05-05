@@ -150,7 +150,19 @@ button.small { padding: 4px 8px; font-size: 11px; margin-left: 8px; }
   border: 1px solid var(--border);
   font-size: 12px;
 }
-.ability-name { font-weight: bold; letter-spacing: 1px; color: var(--accent); }
+.ability-name {
+  font-weight: bold;
+  letter-spacing: 1px;
+  color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.ability-icon {
+  font-size: 18px;
+  line-height: 1;
+  filter: drop-shadow(0 0 6px rgba(224, 175, 104, 0.55));
+}
 
 /* Three-tier ability hierarchy, shared by CharacterSelect + Draft screens. */
 .ability-effect {
@@ -206,9 +218,43 @@ button.small { padding: 4px 8px; font-size: 11px; margin-left: 8px; }
   justify-content: space-between;
   align-items: center;
 }
-.target-name { font-size: 16px; font-weight: bold; letter-spacing: 1px; }
+.target-name {
+  font-size: 16px;
+  font-weight: bold;
+  letter-spacing: 1px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.target-icon {
+  font-size: 22px;
+  line-height: 1;
+  filter: drop-shadow(0 0 6px rgba(240, 189, 114, 0.55));
+}
 .target-tier { font-size: 11px; color: var(--muted); }
 .target-flavor { color: var(--muted); font-style: italic; font-size: 12px; }
+.target-reward {
+  font-size: 12px;
+  color: var(--muted);
+  letter-spacing: 0.5px;
+}
+.target-reward strong {
+  color: var(--accent);
+  font-size: 14px;
+  letter-spacing: 1px;
+}
+
+/* Creds pill — used in the run header on the map and draft screens. */
+.creds-pill {
+  display: inline-block;
+  padding: 2px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: rgba(240, 189, 114, 0.12);
+  color: var(--accent);
+  font-weight: bold;
+  letter-spacing: 1px;
+}
 .target-dice {
   display: flex;
   align-items: center;
@@ -408,6 +454,26 @@ button.small { padding: 4px 8px; font-size: 11px; margin-left: 8px; }
   flex-direction: column;
   align-items: center;
   gap: 10px;
+  transition: opacity 180ms ease, filter 180ms ease;
+}
+.draft-option--unaffordable {
+  opacity: 0.55;
+  filter: saturate(0.6);
+}
+.ability-cost {
+  font-size: 13px;
+  letter-spacing: 1px;
+  color: var(--accent);
+  font-weight: bold;
+  padding: 2px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: rgba(240, 189, 114, 0.10);
+}
+.ability-cost--unaffordable {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: rgba(255, 138, 160, 0.08);
 }
 
 /* Game over */

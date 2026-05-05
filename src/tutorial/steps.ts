@@ -66,17 +66,6 @@ export const STEPS: TutorialStep[] = [
     shouldShow: (ctx) => onScreen('heist')(ctx) && !heistRolled(ctx),
   },
   {
-    id: 'heist.firstRoll',
-    screen: 'heist',
-    text: "Click ROLL to roll your dice pool. Heat dice roll alongside yours.",
-    anchor: '[data-tutorial="roll-button"]',
-    mode: 'auto',
-    shouldShow: (ctx) =>
-      onScreen('heist')(ctx) &&
-      Boolean(ctx.heist) &&
-      !heistRolled(ctx),
-  },
-  {
     id: 'heist.firstFulfillable',
     screen: 'heist',
     text: "Tiles glow GREEN when your dice can fulfill their requirement. Click a green tile to spend the dice and step onto it.",
@@ -112,10 +101,10 @@ export const STEPS: TutorialStep[] = [
       Boolean(ctx.run && Object.values(ctx.run.abilityCharges).some((n) => n > 0)),
   },
   {
-    id: 'heist.firstReroll',
+    id: 'heist.firstMovementReroll',
     screen: 'heist',
-    text: "REROLL ends your turn and rolls again. Heat acts every turn — pick your moments.",
-    anchor: '[data-tutorial="reroll-button"]',
+    text: "Movement ends your turn — stepping onto an already-cleared tile (or fulfilling a phase tile) re-rolls your dice and lets heat act.",
+    anchor: '.hg-tile--movable',
     mode: 'info',
     shouldShow: (ctx) =>
       onScreen('heist')(ctx) && Boolean(ctx.heist && ctx.heist.turn >= 2),

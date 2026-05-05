@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import {
+  AbilityChargeEvent,
   AbilityDraftOption,
+  AbilityImpactEvent,
   CharacterAbility,
   Die,
   GameState,
@@ -80,9 +82,10 @@ function isWalkable(t: Tile): boolean {
 
 // For trapped-detection only: treats revealed-but-unfulfilled phase tiles as
 // potentially traversable (the player may still fulfill them later). Only
-// permanent blockers — walls and heat-fulfilled tiles — count as impassable.
+// permanent blockers — walls, void porch slots, and heat-fulfilled tiles —
+// count as impassable.
 function isNotPermanentlyBlocked(t: Tile): boolean {
-  return t.kind !== 'wall' && t.state !== 'heatFulfilled';
+  return t.kind !== 'wall' && t.kind !== 'void' && t.state !== 'heatFulfilled';
 }
 
 function revealFogAround(grid: Grid, center: Position): Grid {
@@ -197,32 +200,68 @@ function detectOutcome(grid: Grid, player: Position): 'won' | 'captured' | 'trap
 
 // After a roll, each ability whose trigger is currently satisfied by the
 // pool gains one charge. Charges accumulate across rolls and are only spent
-// by activating the ability.
+// by activating the ability. Returns one AbilityChargeEvent per ability
+// that gained a charge — the UI uses these to animate the pop on the
+// ability card AND highlight the satisfying dice in the pool.
 function addChargesFromRoll(
   pool: Die[],
   abilities: CharacterAbility[],
   currentCharges: Record<string, number>,
-): { charges: Record<string, number>; gained: string[] } {
+): {
+  charges: Record<string, number>;
+  gained: string[];
+  events: AbilityChargeEvent[];
+} {
   const charges = { ...currentCharges };
   const gained: string[] = [];
+  const events: AbilityChargeEvent[] = [];
   for (const ability of abilities) {
     const subset = findSatisfyingSubset(pool, ability.trigger);
     if (subset) {
       charges[ability.id] = (charges[ability.id] ?? 0) + 1;
       gained.push(ability.name);
+      events.push({
+        abilityId: ability.id,
+        abilityName: ability.name,
+        satisfyingDiceIds: subset.map((d) => d.id),
+      });
     }
   }
-  return { charges, gained };
+  return { charges, gained, events };
 }
 
-function buildAbilityDraft(owned: CharacterAbility[]): AbilityDraftOption[] {
+function buildAbilityDraft(
+  owned: CharacterAbility[],
+  creds: number,
+): AbilityDraftOption[] {
   const ownedIds = new Set(owned.map((a) => a.id));
   const available = draftedAbilityPool.filter((a) => !ownedIds.has(a.id));
   const DRAFT_SIZE = 3;
 
-  let picks: CharacterAbility[];
+  // Affordability-biased selection: pick the draft so the player can
+  // afford at least 2 of the 3 options whenever the available pool
+  // contains 2+ affordable abilities. Falls back to fewer affordable
+  // entries (or none) when the pool can't satisfy the bias — better to
+  // show what exists than to skip the draft entirely.
+  const affordable = available.filter((a) => a.cost <= creds);
+  const unaffordable = available.filter((a) => a.cost > creds);
+
+  let picks: CharacterAbility[] = [];
   if (available.length >= DRAFT_SIZE) {
-    picks = randomPick(available, DRAFT_SIZE);
+    if (affordable.length >= 2) {
+      const twoAffordable = randomPick(affordable, 2);
+      const remainingPool = available.filter(
+        (a) => !twoAffordable.some((p) => p.id === a.id),
+      );
+      // Third slot can come from anywhere in the remaining pool.
+      const third = randomPick(remainingPool, 1);
+      picks = shuffle([...twoAffordable, ...third]);
+    } else if (affordable.length === 1) {
+      const filler = randomPick(unaffordable, 2);
+      picks = shuffle([...affordable, ...filler]);
+    } else {
+      picks = randomPick(available, DRAFT_SIZE);
+    }
   } else {
     // Fallback: exhaust available uniques, then allow duplicates from the full pool.
     const uniques = shuffle(available);
@@ -246,6 +285,7 @@ function buildFreshHeist(
       id: `${target.id}#goal-${nodeIndex}`,
       name: target.name,
       type: 'goal',
+      icon: target.icon,
       requirement: target.requirement,
       momentumDice: [],
       flavor: target.flavor,
@@ -264,7 +304,8 @@ function buildFreshHeist(
   for (let i = 0; i < heatCount; i += 1) {
     heat.push({ ...createDie(6, 'heat'), value: null });
   }
-  // Reveal fog around the starting position (start is already revealed).
+  // Reveal fog around the start tile so the player can see their immediate
+  // neighbors on the playable grid above the porch.
   const gridRevealed = revealFogAround(grid, grid.start);
   return {
     grid: gridRevealed,
@@ -278,6 +319,8 @@ function buildFreshHeist(
     log: [`The job: ${target.name}.`],
     lastHeatResolution: null,
     lastPlayerFulfill: null,
+    lastChargeEvents: [],
+    lastAbilityImpact: null,
   };
 }
 
@@ -332,6 +375,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       characterDie: character.startingDie,
       abilities: [character.ability],
       abilityCharges: {},
+      creds: 0,
       heat: [],
       nodeIndex: 0,
       map: buildMap(),
@@ -494,6 +538,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
             capturedOnTarget: false,
           },
           lastPlayerFulfill: null,
+          lastChargeEvents: chargeRes.events,
         },
       },
     });
@@ -559,6 +604,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
     let heat = heist.heat;
     const log = [...heist.log, `✔ ${tileCard.name} fulfilled.`];
 
+    // Cache payout — only awarded when the PLAYER fulfills the tile
+    // (heat-fulfillment never pays). Banked into run.creds, spent later
+    // in the between-heist draft.
+    const cacheReward = tileCard.cacheReward ?? 0;
+    if (cacheReward > 0) {
+      log.push(`💰 Cache! +¢${cacheReward}.`);
+    }
+
     // Fire onPlayEffect if present.
     if (tileCard.onPlayEffect) {
       const effectRes = applyEffect(tileCard.onPlayEffect, {
@@ -622,6 +675,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       run: {
         ...run,
         characterDie,
+        creds: run.creds + cacheReward,
         heist: {
           ...heist,
           grid,
@@ -643,7 +697,17 @@ export const useGameStore = create<GameStore>((set, get) => ({
       },
       ui: { ...state.ui, selectedDiceIds: [], message: null },
     });
-    if (outcome) postOutcome(outcome);
+    if (outcome) {
+      postOutcome(outcome);
+      return;
+    }
+    // Fulfilling a non-target tile auto-moves the player onto it AND
+    // ends the turn — same end-turn-and-roll sequence as movement.
+    // Target tiles are the exception: a target fulfill is the WIN, the
+    // run is over, no reroll needed.
+    if (tile.kind !== 'target') {
+      get().reroll();
+    }
   },
 
   // Reroll == End Turn + Roll. Resolves all pending heat intents (locking
@@ -750,7 +814,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
             fills,
             capturedOnTarget: false,
           },
-          lastPlayerFulfill: null,
+          // Preserve lastPlayerFulfill from the spread so a fulfill that
+          // chained into reroll can still play its fly animation.
+          lastChargeEvents: chargeRes.events,
         },
       },
       ui: { ...state.ui, selectedDiceIds: [], message: null },
@@ -812,41 +878,100 @@ export const useGameStore = create<GameStore>((set, get) => ({
       return;
     }
 
-    // Apply the ability's effect. Any currently-selected dice are passed
-    // through as effect targets (for setDieToMax / duplicateDie / etc.).
-    // Non-targeted effects ignore the selection.
-    const effectRes = applyEffect(ability.effect, {
-      pool: heist.pool,
-      heat: heist.heat,
-      selectedDiceIds: state.ui.selectedDiceIds,
-    });
+    // Batch-fire path: when the ability targets a single die but the
+    // player has multiple dice selected, repeat the ability — one fire
+    // per selected die, one charge per fire — until either we run out
+    // of charges or every selected die has been hit. For everything
+    // else (non-targeted effects, multi-target effects like
+    // `setTwoDiceToOne`, single-target with a single selection) the
+    // loop runs exactly once with the original selection.
+    const isSingleTargetEffect = ability.effect.requiresTarget === 'die';
+    const selectedIds = state.ui.selectedDiceIds;
+    const batchTargets: Array<string[]> =
+      isSingleTargetEffect && selectedIds.length > 1
+        ? selectedIds
+            .slice(0, currentCharges)
+            .map((id) => [id])
+        : [selectedIds];
+
+    let pool = heist.pool;
+    let heat = heist.heat;
+    const effectLog: string[] = [];
+    const impactedDieIds: string[] = [];
+    let chargesUsed = 0;
+    for (const targetIds of batchTargets) {
+      if (currentCharges - chargesUsed <= 0) break;
+      const res = applyEffect(ability.effect, {
+        pool,
+        heat,
+        selectedDiceIds: targetIds,
+      });
+      pool = res.pool;
+      heat = res.heat;
+      effectLog.push(...res.log);
+      // Record which dice this fire impacted. For target-bearing
+      // effects (single or multi) it's the targeted ids; for non-target
+      // effects we treat the originally-selected ids as impacted (the
+      // effect may consume / transform them — e.g. rerollSelected).
+      for (const id of targetIds) {
+        if (id) impactedDieIds.push(id);
+      }
+      chargesUsed += 1;
+    }
+
+    const chargesLeft = currentCharges - chargesUsed;
     const log = [
       ...heist.log,
-      `⚡ Activated ${ability.name}. (${currentCharges - 1} charge${
-        currentCharges - 1 === 1 ? '' : 's'
-      } left)`,
+      chargesUsed > 1
+        ? `⚡ Activated ${ability.name} ×${chargesUsed}. (${chargesLeft} charge${
+            chargesLeft === 1 ? '' : 's'
+          } left)`
+        : `⚡ Activated ${ability.name}. (${chargesLeft} charge${
+            chargesLeft === 1 ? '' : 's'
+          } left)`,
       `Effect: ${ability.effect.text}`,
-      ...effectRes.log,
+      ...effectLog,
     ];
 
     const outcome: HeistState['outcome'] = heist.outcome ?? detectOutcome(heist.grid, heist.player);
+
+    // Build the impact event so the UI can light up the affected dice.
+    // For non-targeted effects (rerollAll, removeOnes, etc.) we still
+    // ping the entire pool by leaving impactedDieIds empty — the UI
+    // treats an empty list as "no specific spotlight" and skips the
+    // animation rather than enlarging every die.
+    const impactEvent: AbilityImpactEvent = {
+      abilityId,
+      abilityName: ability.name,
+      impactedDieIds,
+    };
 
     set({
       run: {
         ...run,
         abilityCharges: {
           ...run.abilityCharges,
-          [abilityId]: currentCharges - 1,
+          [abilityId]: chargesLeft,
         },
         heist: {
           ...heist,
-          pool: effectRes.pool,
-          heat: effectRes.heat,
+          pool,
+          heat,
           log,
           outcome: outcome ?? null,
+          lastAbilityImpact: impactEvent,
         },
       },
-      ui: { ...state.ui, message: null },
+      // Clear the dice selection: the selected dice were the ability's
+      // targets and have now been "consumed" (their values transformed,
+      // duplicated, etc.). Crucially, this also flips the
+      // `selectedDice.length >= min` trigger in HeistScreen's
+      // fire-when-targeted useEffect to false on the next render — without
+      // this, the effect re-fires after every successful activation
+      // (zustand notifies subscribers synchronously, ahead of React
+      // flushing `setWaitingAbilityId(null)`) and burns through every
+      // remaining charge in a single click.
+      ui: { ...state.ui, selectedDiceIds: [], message: null },
     });
     if (outcome) postOutcome(outcome);
   },
@@ -856,10 +981,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (!run?.draft) return;
     const option = run.draft[optionIndex];
     if (!option) return;
+    // Gate the purchase on affordability — the UI also disables
+    // unaffordable buttons, but the store enforces it as the source of
+    // truth. Skip silently if the player can't actually pay.
+    if (option.ability.cost > run.creds) return;
     set({
       run: {
         ...run,
         abilities: [...run.abilities, option.ability],
+        creds: run.creds - option.ability.cost,
         draft: null,
       },
     });
@@ -893,15 +1023,25 @@ export const useGameStore = create<GameStore>((set, get) => ({
       set({ ...initialState, ui: initialUI });
       return;
     }
-    // Heist won.
+    // Heist won — pay out the target's creds reward.
+    const node = run.map[run.nodeIndex];
+    const chosenTargetId = node.chosenTargetId;
+    const chosenTarget = chosenTargetId
+      ? node.targetChoices.find((t) => t.id === chosenTargetId)
+      : undefined;
+    const reward = chosenTarget?.credsReward ?? 0;
+    const credsAfter = run.creds + reward;
     const isFinalNode = run.nodeIndex === TOTAL_NODES - 1;
     if (isFinalNode) {
-      set({ screen: 'gameOver' });
+      set({ screen: 'gameOver', run: { ...run, creds: credsAfter } });
       return;
     }
     // Won a non-final node — go to draft for the next job.
-    const draft = buildAbilityDraft(run.abilities);
-    set({ screen: 'draft', run: { ...run, draft, heist: null } });
+    const draft = buildAbilityDraft(run.abilities, credsAfter);
+    set({
+      screen: 'draft',
+      run: { ...run, creds: credsAfter, draft, heist: null },
+    });
   },
 }));
 

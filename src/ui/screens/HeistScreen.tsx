@@ -31,7 +31,8 @@ export function HeistScreen() {
   const movePlayer = useGameStore((s) => s.movePlayer);
   const rollDiceAction = useGameStore((s) => s.rollDice);
   const playerFulfillTile = useGameStore((s) => s.playerFulfillTile);
-  const reroll = useGameStore((s) => s.reroll);
+  // `reroll` is no longer wired to a button — see hidden REROLL note below.
+  // Movement / fulfillment trigger it internally via the gameStore.
   const activateAbility = useGameStore((s) => s.activateAbility);
   const proceedFromOutcome = useGameStore((s) => s.proceedFromOutcome);
 
@@ -49,6 +50,15 @@ export function HeistScreen() {
   // auto-fires the activation. Pre-selecting targets before clicking Activate
   // skips the wait entirely.
   const [waitingAbilityId, setWaitingAbilityId] = useState<string | null>(null);
+
+  // Auto-roll on heist entry. ROLL is no longer a button — the first roll
+  // fires the moment the player lands on the heist screen. Every subsequent
+  // roll is implicit too (movement / fulfillment chain into a reroll).
+  useEffect(() => {
+    if (isOver) return;
+    if (heist.hasRolledThisTurn) return;
+    rollDiceAction();
+  }, [heist.hasRolledThisTurn, isOver, rollDiceAction]);
 
   const onActivateAbility = useCallback(
     (abilityId: string) => {
@@ -394,6 +404,94 @@ export function HeistScreen() {
   const character = run.character;
   const characterDie = heist.pool.find((d) => d.source === 'character');
 
+  // Roll nonce — a counter that increments each time the dice are rolled,
+  // so DicePoolView and HeatTrayView can play their jiggle animation. We
+  // tick it on heist.lastHeatResolution identity change (rollDice and
+  // reroll both replace this object on every roll).
+  const [rollNonce, setRollNonce] = useState(0);
+  const lastRollResRef = useRef<unknown>(null);
+  useEffect(() => {
+    const res = heist.lastHeatResolution;
+    if (res && res !== lastRollResRef.current) {
+      lastRollResRef.current = res;
+      setRollNonce((n) => n + 1);
+    }
+  }, [heist.lastHeatResolution]);
+
+  // Charge-event queue. When a roll grants charges to multiple abilities,
+  // the events are processed sequentially: one ability pops while the
+  // exact pool dice that satisfied its trigger are enlarged in the pool,
+  // then the next event takes over. This makes cause-and-effect visible
+  // and prevents the previous "all animations at once" mush.
+  const CHARGE_EVENT_MS = 1100;
+  const CHARGE_EVENT_GAP_MS = 180;
+  const [chargeQueue, setChargeQueue] = useState<typeof heist.lastChargeEvents>([]);
+  const [currentChargeEvent, setCurrentChargeEvent] = useState<
+    (typeof heist.lastChargeEvents)[number] | null
+  >(null);
+  const lastChargeEventsRef = useRef<unknown>(null);
+  // Seed the queue from the freshly-arrived charge events.
+  useEffect(() => {
+    const events = heist.lastChargeEvents;
+    if (events !== lastChargeEventsRef.current) {
+      lastChargeEventsRef.current = events;
+      if (events.length > 0) {
+        // Replace any in-flight queue — a fresh roll supersedes leftover
+        // events from the previous one.
+        setChargeQueue(events);
+      }
+    }
+  }, [heist.lastChargeEvents]);
+  // Effect 1: dequeue the next event after a short visual gap, so the
+  // hand-off between abilities reads as a separate beat instead of one
+  // blob of motion. We split dequeue from end-of-event scheduling to
+  // avoid the cleanup of this effect clobbering its own timeout when
+  // setCurrentChargeEvent forces a re-render.
+  useEffect(() => {
+    if (currentChargeEvent) return;
+    if (chargeQueue.length === 0) return;
+    const t = window.setTimeout(() => {
+      const [head, ...rest] = chargeQueue;
+      setCurrentChargeEvent(head);
+      setChargeQueue(rest);
+    }, CHARGE_EVENT_GAP_MS);
+    return () => window.clearTimeout(t);
+  }, [chargeQueue, currentChargeEvent]);
+  // Effect 2: while an event is in flight, count down to its end. Only
+  // depends on currentChargeEvent so it isn't re-scheduled by queue
+  // mutations inside effect 1.
+  useEffect(() => {
+    if (!currentChargeEvent) return;
+    const t = window.setTimeout(() => {
+      setCurrentChargeEvent(null);
+    }, CHARGE_EVENT_MS);
+    return () => window.clearTimeout(t);
+  }, [currentChargeEvent]);
+
+  const highlightedDieIds = useMemo(
+    () => new Set(currentChargeEvent?.satisfyingDiceIds ?? []),
+    [currentChargeEvent],
+  );
+
+  // Ability-impact spotlight: when activateAbility lands a transform on
+  // one or more pool dice, those dice scale up + glow + jiggle for a
+  // beat. We watch the lastAbilityImpact identity and hold the impacted
+  // ids in local state for ~750ms.
+  const ABILITY_IMPACT_MS = 750;
+  const [impactedDieIds, setImpactedDieIds] = useState<Set<string>>(new Set());
+  const lastImpactRef = useRef<unknown>(null);
+  useEffect(() => {
+    const ev = heist.lastAbilityImpact;
+    if (!ev || ev === lastImpactRef.current) return;
+    lastImpactRef.current = ev;
+    if (ev.impactedDieIds.length === 0) return;
+    setImpactedDieIds(new Set(ev.impactedDieIds));
+    const t = window.setTimeout(() => {
+      setImpactedDieIds(new Set());
+    }, ABILITY_IMPACT_MS);
+    return () => window.clearTimeout(t);
+  }, [heist.lastAbilityImpact]);
+
   return (
     <div
       className={`hg-screen ${isOver ? `hg-screen--ended hg-screen--ended-${outcome}` : ''}`}
@@ -408,7 +506,10 @@ export function HeistScreen() {
             </span>
           </div>
           <div className="hg-header-meta">
-            {character.name} · <DieGlyph size={run.characterDie} px={16} /> ·{' '}
+            <span className="creds-pill" title="Creds — spent on abilities between jobs">
+              ¢ {run.creds}
+            </span>{' '}
+            · {character.name} · <DieGlyph size={run.characterDie} px={16} /> ·{' '}
             {run.abilities.length} ability
             {run.abilities.length === 1 ? '' : 'ies'}
           </div>
@@ -463,37 +564,23 @@ export function HeistScreen() {
             disabled={isOver}
             previewConsumedIds={previewConsumedIds}
             previewGainedSizes={previewGainedSizes}
+            rollNonce={rollNonce}
+            highlightedDieIds={highlightedDieIds}
+            impactedDieIds={impactedDieIds}
           />
         </section>
 
         {/* Heat */}
         <section className="hg-panel hg-heat">
           <div className="hg-panel-title">Heat</div>
-          <HeatTrayView heat={heist.heat} />
+          <HeatTrayView heat={heist.heat} rollNonce={rollNonce} />
         </section>
 
-        {/* Actions */}
-        <section className="hg-panel">
-          <div className="hg-panel-title">Actions</div>
-          <div className="hg-actions">
-            <button
-              data-tutorial="roll-button"
-              onClick={rollDiceAction}
-              disabled={isOver || heist.hasRolledThisTurn}
-              className={!heist.hasRolledThisTurn && !isOver ? 'primary' : ''}
-            >
-              ROLL
-            </button>
-            <button
-              data-tutorial="reroll-button"
-              onClick={reroll}
-              disabled={isOver || !heist.hasRolledThisTurn}
-              title="Ends the turn (heat fires) and rolls fresh dice with a +d6 bonus to each pool"
-            >
-              REROLL
-            </button>
-          </div>
-        </section>
+        {/* Actions panel is intentionally hidden — both ROLL and REROLL are
+            now implicit. ROLL fires automatically on heist entry (see the
+            useEffect below); REROLL fires whenever the player moves onto a
+            walkable tile or fulfills a phase tile. The faint reroll glyph
+            on adjacent walkable tiles surfaces the reroll affordance. */}
 
         {/* Abilities */}
         <section className="hg-panel">
@@ -505,6 +592,7 @@ export function HeistScreen() {
             waitingAbilityId={waitingAbilityId}
             selectedDiceCount={selectedDice.length}
             disabled={isOver}
+            poppingAbilityId={currentChargeEvent?.abilityId ?? null}
           />
         </section>
 

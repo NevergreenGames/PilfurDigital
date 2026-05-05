@@ -1,214 +1,281 @@
-﻿________________
+________________
 
 
-PILFUR
-A Semi-Cooperative Heist Dice Game
+PILFUR DIGITAL
+A Solo Roguelike Heist Dice Game
 ________________
 
 
 Overview
-Pilfur is a semi-cooperative survival game about planning and executing an impossible heist. Players work together to pull off a single daring job—but when things go wrong, each player must still escape on their own.
-Every game of Pilfur represents one heist.
-The crew plans boldly, momentum builds, mistakes compound, and the getaway decides who makes it out.
-Players may all win.
-Some may win while others are caught.
-It is also possible for everyone to lose.
-Winning and losing are strictly binary. There is no score.
+Pilfur Digital is a solo, run-based adaptation of the tabletop game Pilfur.
+A run is a sequence of five heists. Each heist is its own self-contained
+grid puzzle: explore the building, fulfill the right tiles in the right
+order, beat the heat to the goal, and walk away with the score before the
+heat catches you. Character abilities, charges, and a leveling die carry
+between heists; failing any heist ends the run.
+
+Core fantasy: improvise an impossible heist with mediocre dice and a
+character who's better at one thing than three.
+
+Win and lose conditions are binary. There is no score across runs — only
+"got out clean" or "got caught."
 ________________
 
 
 Game Information
-* Players: 1–4
-* Play Time: 30–45 minutes
-* Genre: Light strategy, narrative dice game
-* Core Themes: Heists, improvisation, pressure, consequences
+* Players: 1 (solo only — multiplayer is not in the digital version)
+* Run length: 5 heists, ~30–45 minutes
+* Genre: Roguelike dice puzzle, light grid-exploration
+* Core themes: Cause-and-effect dice play, accumulating heat, escalating risk
 ________________
 
 
-Components
-* 10 Heist Target Cards
-* 1 Phase Card Deck
-* Character Cards (one per player)
-* Dice
-   * d4, d6, and d20 (used as momentum dice)
-   * Red d6s (used as heat dice)
+Run Structure
+A run is one playthrough, end to end:
+   1. Title screen → Play
+   2. Pick a character (1 of 3)
+   3. Heist 1 → Heist 2 → Heist 3 → Heist 4 → Heist 5
+   4. Between heists: ability draft (pick 1 of 3 to add to your loadout)
+   5. End: clean getaway (won) or caught/trapped (lost)
+A run ends immediately on the first heist you fail. The character die size
+and any unspent ability charges persist through to the next heist if you
+succeed.
 ________________
 
 
-Dice Types
-* Momentum Dice
-   * Any d4, d6, or d20
-   * Used during the heist and escape
-   * Drawn from a shared supply
-   * Considered infinite—use substitutes if needed
-* Heat Dice
-   * Red d6s only
-   * Shared pool
-   * No maximum limit
+CHARACTERS
+The player picks one character at the start of the run.
+Each character has:
+   * A starting die size (d4 / d6 / d10)
+   * One signature ability with a trigger and an effect
+   * Flavor text and a unique icon
+The starting die — the "character die" — is special: it is part of the
+dice pool throughout every heist, it never becomes heat, and if it ever
+rolls its maximum value while being consumed it permanently steps up one
+size (d4 → d6 → d8 → d10 → d12 → d20). A small d4 can become a d20 by
+the end of a run.
+Currently shipped:
+   * The Hacker — d6 starter, ability "BACKDOOR" (trigger: 3 of a kind,
+     effect: spend a charge to set a target die to its max).
+   * The Demolitionist — d4 starter, ability "SHAPED CHARGE" (trigger:
+     sum ≥ 12 from 2+ dice, effect: spend a charge to reroll the entire
+     pool).
+   * The Veteran — d10 starter, ability "STEADY HAND" (trigger:
+     4-straight, effect: spend a charge to remove 2 heat dice).
 ________________
 
 
-Setup
-1. Choose Characters
-Each player selects a character card and reads its ability to the group.
-2. Deal Phase Cards
-Take 12 phase cards and deal them evenly among all players.
-This is each player’s starting hand.
-3. Draw the Heist Target
-Randomly draw 1 heist target card and place it face up in the center of the table.
-4. Determine First Player
-Randomly choose a starting player. Play proceeds clockwise.
+THE HEIST
+Each heist plays out on a grid representing the building you're robbing.
+Heist 1 uses a smaller 5×5 playable grid; heists 2–5 expand to 7×7. Both
+sit on top of a hidden "porch row" with a single start tile in the
+middle column — the player's spawn — and the tile directly above the
+porch is always a guaranteed-open empty square so the first move into the
+building is unblocked.
+
+Each tile on the playable grid is one of:
+   * Hidden — fogged. Revealed when the player or an adjacent tile is
+     stepped on.
+   * Revealed phase tile — has a phase card with a requirement and a
+     reward (momentum dice).
+   * Revealed start / open tile — walkable, no card.
+   * Wall — impassable barrier (procedurally placed; may not block
+     start-to-target reachability).
+   * Goal — the heist target. Has its own requirement card. Reaching it
+     wins the heist.
+   * Player-fulfilled — a phase tile the player has cleared. Walkable.
+   * Heat-fulfilled — a phase tile the heat has clinched. Permanent
+     blocker.
+   * Void — invisible spacer slot on the porch row, never rendered.
 ________________
 
 
-The Heist Structure
-Each game of Pilfur proceeds in three phases:
-   1. Planning the Heist
-   2. Executing the Heist
-   3. The Escape
+Dice
+There are two dice pools per heist:
+   * The player's pool — starts each heist with the character die plus a
+     d6 starter, and grows as the player fulfills phase tiles that grant
+     momentum dice. Every reroll adds one bonus d6 to the pool.
+   * Heat — adversary dice. Heat starts each heist at (nodeIndex + 2)
+     d6s, so heist 1 begins with 2 heat and heist 5 begins with 6 heat.
+     Heat scales further when the heat fulfills phase tiles (their
+     momentum dice become new heat).
+
+Dice are unrolled (value=null) until rolled. The first roll fires
+automatically when the player enters the heist screen — there is no
+ROLL button. Subsequent rerolls fire automatically whenever the player
+moves onto a walkable tile or fulfills a phase tile.
+
+Auto-pick bias: when the player clicks a green-glowing tile without
+manually selecting dice, the engine automatically picks a satisfying
+subset. Among satisfying subsets, the engine prefers ones that include
+the character die — keeping it rolling so it has more chances to max-roll
+and level up.
 ________________
 
 
-PLANNING THE HEIST
-The planning phase establishes the plan—bold, detailed, and doomed to go wrong.
+REQUIREMENTS
+Phase cards and goals require one of three patterns:
+   * Sum: dice sum {< | ≤ | = | ≥ | >} target value, optionally with a
+     minimum dice count (e.g. "sum ≥ 15 from 4+ dice").
+   * X of a kind: N dice showing the same value (pair, three of a kind,
+     etc.).
+   * Straight: N consecutive integers in a row.
+The same patterns are reused for ability triggers.
 ________________
 
 
-Declare the Target
-The starting player reads aloud:
-“We’re going to steal the [target name].”
-Read any special rules on the heist target card.
+THE TURN
+A heist progresses turn by turn. On each turn:
+   1. Dice are rolled (auto on heist start, auto on movement / fulfillment).
+   2. The board updates:
+      * Tiles glow YELLOW when adjacent and have a phase card. They are
+        "selectable" but the requirement is not currently met.
+      * Tiles glow GREEN when their requirement could be satisfied right
+        now by the dice in the pool — clicking commits the play.
+      * Walkable adjacent tiles (start tiles or already-fulfilled tiles)
+        glow BLUE with a faint reroll glyph — clicking advances onto the
+        tile, ending the turn and triggering a fresh roll.
+      * Every other tile is muted so the candidate moves stand out.
+   3. Heat looms: any heat dice from the fresh roll that could satisfy an
+      adjacent phase tile are RESERVED on that tile (rendered as small
+      red dice hovering above it). Reserved dice are removed from the
+      heat pool until the intent resolves.
+   4. The player acts. A turn is exactly one action:
+      * Move onto a walkable adjacent tile. Ends the turn → triggers
+        end-of-turn heat resolution and a fresh roll.
+      * Fulfill an adjacent phase tile. Spend the satisfying dice (the
+        character die returns unrolled instead of being consumed).
+        Auto-move onto the cleared tile. Ends the turn → triggers heat
+        resolution and a fresh roll. Reaching the goal tile this way
+        WINS the heist.
+      * Activate an ability. Spends one charge. Does not end the turn.
+      * Select dice manually (toggle). Does not end the turn.
+
+End-of-turn heat resolution: every looming heat intent fires. Its tile
+becomes heat-fulfilled (locked, impassable), and any reward momentum dice
+on that tile become NEW heat dice (joining the heat pool unrolled,
+rolling on the next turn). The player can preempt a looming intent by
+fulfilling that tile themselves before the turn ends, in which case the
+reserved heat dice are released back to the heat pool.
 ________________
 
 
-Build the Plan
-Starting with the first player and proceeding clockwise, each player must do one of the following on their turn:
-   * Play one phase card from their hand face up into the center of the table, describing how it contributes to the plan.
-Phase cards represent steps in the heist such as distractions, preparations, or obstacles dealt with in advance.
-Players may not skip their turn.
+ABILITIES AND CHARGES
+Each character starts with one signature ability. Between heists, the
+player picks one drafted ability to add to their loadout (or skips).
+
+Abilities are charge-based:
+   * After every roll the engine checks each owned ability's TRIGGER
+     against the freshly rolled pool. If a satisfying subset exists, the
+     ability gains 1 charge.
+   * Charges accumulate. They persist across heists.
+   * Activating an ability spends 1 charge and applies its EFFECT.
+
+Effects can be:
+   * Pool-modifying — reroll all / highest / lowest / selected, set die
+     to max / value, duplicate die, set two dice to 1, remove ones, add
+     dice to pool.
+   * Heat-modifying — remove 1 or 2 heat dice.
+
+Targeting: some effects need 1 specific die ("die"); others need 2
+("dice"); the rest are non-targeted. To activate a targeted ability the
+player can either pre-select the right number of dice and click ACTIVATE,
+or click ACTIVATE first and then click dice to enter "waiting" mode.
+
+Batch fire: if a single-target ability is fired with multiple dice
+selected, the ability is repeated once per selected die, consuming one
+charge per fire, until either all selected dice are hit or charges run
+out. A single click on ACTIVATE with three dice selected and three charges
+fires the ability three times.
 ________________
 
 
-Ending the Plan
-Instead of playing a phase card, a player may end planning by declaring:
-“Then I steal the [target name].”
-This immediately ends the planning phase.
-   * Other players may not object.
-   * If all phase cards have been played, planning must end.
+CAUSE-AND-EFFECT FEEDBACK
+Pilfur Digital deliberately telegraphs cause and effect. After every roll:
+   * Player and heat dice cups jiggle and the dice tumble inside them.
+   * Each ability that gained a charge from the roll plays a celebratory
+     pop animation IN ORDER, one at a time. While an ability pops, the
+     specific dice in the pool that satisfied its trigger enlarge and
+     glow gold so the player sees which dice caused which charge.
+   * Tiles repaint based on what is now possible.
+
+After every ability activation:
+   * Every die the ability transformed enlarges, glows gold, and jiggles
+     for ~750ms — the player sees the effect take hold on those exact
+     dice.
+
+After every heat resolution:
+   * Heat dice fly from the heat banner onto each tile they're claiming
+     before the looming animation begins.
+   * On end-of-turn, locked tiles play a heat-lock keyframe.
 ________________
 
 
-EXECUTING THE HEIST
-The plan is put into motion—one phase at a time.
+HEIST OUTCOMES
+A heist ends as one of:
+   * WON — the player fulfilled the goal tile.
+   * CAPTURED — the heat fulfilled the goal tile (or, equivalently,
+     heat-fulfilled it on end-of-turn resolution).
+   * TRAPPED — the player can no longer reach the goal: a BFS over
+     non-permanently-blocked tiles (i.e. excluding walls and
+     heat-fulfilled tiles) fails to reach any 8-neighbor of the goal,
+     and the player is not currently adjacent to the goal.
+
+A heist-end overlay shows the outcome over the final board state. The
+player can minimize it to inspect the layout, then proceeds:
+   * WON on a non-final node → ability draft → next heist.
+   * WON on the final node → game over (run won).
+   * CAPTURED or TRAPPED → run reset to character select.
 ________________
 
 
-Turn Order
-Execution proceeds in the same clockwise order as planning.
-Each player resolves their own phase card when it is their turn.
+META-PROGRESSION (within a run)
+Persisted across heists:
+   * Character die size (level-ups stick).
+   * Owned abilities (signature + drafted).
+   * Unspent ability charges.
+Reset between heists:
+   * Pool composition (resets to character die + d6 each heist).
+   * Heat (regenerated from the per-node scale).
+   * Tile state (each heist generates a fresh grid).
+Reset between runs:
+   * Everything.
 ________________
 
 
-Resolving a Phase
-On your turn:
-   1. Add your phase card’s momentum dice to the pool
-   2. Roll All Momentum Dice in the Pool
-   3. Check the Requirement
-Compare the roll/dice result to your phase card’s requirement:
-      * Examples include:
-      * X of a kind
-      * = N
-      * N+
-      * < N
-      4. Place dice on your phase card to fulfill its requirement
-      * If you satisfied the requirement on your phase card, place the remaining unused dice on the phase cards from previous rounds, completing as many of their requirements as you can.
-      * If you didn’t satisfy your card’s requirement this phase was a total bust! (see Total Bust section)
-      5. Resolve the Outcome
-      * Whether you succeed or fail, play passes to the next player.
-      * After the roll, all momentum dice remain in the pool.
+PRESENTATION
+The game ships with:
+   * A title screen, settings menu, "How to play" overlay, and credits
+     view, accessible at any time via a persistent gear icon.
+   * Background music with mood stations (jazz / tense / piano / lofi),
+     selectable in settings, with smooth crossfades between screens.
+   * An interactive tutorial keyed to first-time appearances of mechanics
+     (character select, map, first heist, fulfilling, heat looming,
+     ability charges, movement reroll, off-screen compass, outcome).
+     Each tutorial step is either dismissed by performing the relevant
+     action ("auto") or by clicking "Got it" ("info").
+   * Explicit emoji icons on every job (target) and ability, surfaced on
+     character select, the map, the draft, the ability sidebar, and the
+     goal tile itself.
 ________________
 
 
-Failure and Flashbacks
-If a phase roll does not meet its requirement, this is a Total Bust! This phase and all previous rounds’ phase cards are considered failed (each of those players draws a phase card) and all momentum dice are left in the pool and considered unused.
-If a phase roll met it’s requirement but didn’t meet all of the previous phase card requirements, the unmet phases are considered failed. Those players each draw a card.
-
-Either way, players then can play flashbacks on any of the failed phase cards.
+AUDIO / VISUAL POLISH
+   * Camera that pans with the player and locks-to-center when the grid
+     fits the 5×5 viewport.
+   * Off-screen compass dots for the goal and the player when either is
+     outside the viewport.
+   * Reduce-motion setting that softens animations.
+   * Strong visual hierarchy on the grid: green will-succeed tiles
+     dominate, blue movable tiles assert, yellow fulfillable-but-not-
+     met tiles whisper, every other tile dims.
 ________________
 
 
-Flashback Opportunity
-Starting with the player to the active player’s left and proceeding clockwise (ending with the active player), any player may attempt a flashback.
-To flashback:
-      * Play a phase card from your hand onto an unfulfilled phase card.
-      * The flashback succeeds only if the already-rolled dice meet that card’s requirement.
-      * Then add the new flashback card’s dice to the pool (the previous card’s dice remain in the pool as well)
-Important Rules:
-      * Only one flashback may be attempted per failed phase card.
-      * Flashbacks occur after seeing the dice.
-      * Dice are not rerolled.
-________________
-
-
-If a Flashback Succeeds
-      * The flashback card’s dice are added to the flashing player’s private stash.
-      * The dice used by the flashback are placed on top of it and no longer considered “unused”
-________________
-
-
-If There are any Remaining Momentum Dice
-      * Add 1 heat die per unused momentum die to the escape pool.
-________________
-
-
-Heist Completion
-Once all planned phases and the final target are resolved, proceed to the escape.
-________________
-
-
-THE ESCAPE
-The job is done. Now everyone runs.
-________________
-
-
-Step 1: Reveal Complications
-Each player reveals all phase cards remaining in their hand.
-These cards are now escape complications along that player’s personal escape route.
-________________
-
-
-Step 2: Resolve Escape Complications
-Each player:
-      1. Rolls all dice in their private stash.
-      2. Assigns rolled dice to their revealed complications.
-      * Dice used to complete one complication cannot be used on another.
-      * Complications can be completed in any order.
-      3. Dice that are not used may be given to another player, but only if:
-      * The giving player has resolved all of their own complications.
-      * The transfer happens before heat is rolled.
-________________
-
-
-Step 3: Clean Getaway Check
-      * If all players resolve all of their escape complications:
-      * The entire crew gets out clean.
-      * All players win.
-      * The game ends.
-________________
-
-
-Step 4: Roll the Heat
-If any player has unresolved escape complications:
-      1. Roll the entire heat dice pool once.
-      2. For each player with unresolved complications:
-      * If the heat dice satisfy any one of that player’s unresolved complication requirements, that player is caught and loses.
-Players without unresolved complications are safe.
-Multiple players may be caught.
-________________
-
-
-End of the Game
-      * Any player who is not caught wins.
-      * Any player who is caught loses.
-      * If all players are caught, everyone loses.
+KNOWN SCOPE (current build)
+   * 3 playable characters.
+   * ~12 phase cards, 15 heist targets across 3 tiers, ~12 draftable
+     abilities.
+   * 5-heist run, procedurally generated grids per heist.
+   * Itch.io HTML5 build target via `npm run package:itch`.
 ________________

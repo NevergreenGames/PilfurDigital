@@ -254,6 +254,22 @@ export function GridView({
     return map;
   }, [grid.tiles, selectedDice, rolledPool]);
 
+  // True iff at least one tile is movable or fulfillable from the player's
+  // current square. The grid uses this to dim every other tile so the
+  // candidate moves jump out against a desaturated backdrop.
+  const hasActionableTiles = useMemo(() => {
+    if (isOver) return false;
+    for (const tile of grid.tiles) {
+      const dr = Math.abs(tile.pos.row - player.row);
+      const dc = Math.abs(tile.pos.col - player.col);
+      if (dr === 0 && dc === 0) continue;
+      if (dr > 1 || dc > 1) continue;
+      if (isWalkable(tile)) return true;
+      if (isUnfulfilledRevealed(tile)) return true;
+    }
+    return false;
+  }, [grid.tiles, player.row, player.col, isOver]);
+
   // Translate offset for the absolutely-positioned grid inside the viewport.
   // While dragging, add the in-flight drag offset on top of the camera-derived
   // translation for sub-tile precision, and disable the CSS transition so the
@@ -377,7 +393,7 @@ export function GridView({
         onMouseDown={onViewportMouseDown}
       >
         <div
-          className="hg-grid"
+          className={`hg-grid ${hasActionableTiles ? 'hg-grid--has-actions' : ''}`}
           role="grid"
           style={{
             gridTemplateColumns: `repeat(${grid.cols}, ${TILE_PX}px)`,
