@@ -4,6 +4,8 @@ import { useGameStore } from './state/gameStore';
 import { useSettingsStore } from './state/settingsStore';
 import { CharacterSelectScreen } from './ui/screens/CharacterSelectScreen';
 import { CreditsModal } from './ui/components/CreditsModal';
+import { DevPanelButton } from './ui/components/DevPanelButton';
+import { DevPanelScreen } from './ui/screens/DevPanelScreen';
 import { DraftScreen } from './ui/screens/DraftScreen';
 import { GameOverScreen } from './ui/screens/GameOverScreen';
 import { GearIcon } from './ui/components/GearIcon';
@@ -87,6 +89,9 @@ export function App() {
     case 'gameOver':
       body = <GameOverScreen />;
       break;
+    case 'dev':
+      body = <DevPanelScreen />;
+      break;
     default:
       body = <div>Unknown screen: {screen}</div>;
   }
@@ -98,6 +103,7 @@ export function App() {
       <SettingsModal />
       <CreditsModal />
       <TutorialOverlay />
+      <DevPanelButton />
     </>
   );
 }

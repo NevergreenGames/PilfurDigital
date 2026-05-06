@@ -21,6 +21,10 @@ const SOURCE_COLORS: Record<string, string> = {
   character: '#e0af68',
   heat: '#f7768e',
   stash: '#9ece6a',
+  // Cyan-violet for ghost dice — distinct from every other source so
+  // they read as "borrowed" at a glance, before the glitch animation
+  // even kicks in.
+  ghost: '#bb9af7',
 };
 
 // viewBox 0..60 on each axis. Polygons sit inside a 4px inset so the stroke
@@ -52,6 +56,7 @@ export function DieView({
   const color = SOURCE_COLORS[die.source] ?? '#aaa';
   const points = DIE_POLYGONS[die.size];
 
+  const isGhostSource = die.source === 'ghost';
   const classes = [
     'die',
     `die-d${die.size}`,
@@ -61,6 +66,7 @@ export function DieView({
     ghost ? `die--${ghost}` : '',
     spotlight ? 'die--spotlight' : '',
     impacted ? 'die--impacted' : '',
+    isGhostSource ? 'die--ghost-source' : '',
   ]
     .filter(Boolean)
     .join(' ');
@@ -86,7 +92,11 @@ export function DieView({
       style={{ color }}
       onClick={onClick}
       disabled={disabled}
-      title={`d${die.size} (${die.source})`}
+      title={
+        isGhostSource
+          ? `d${die.size} (ghost — fades on next fulfill)`
+          : `d${die.size} (${die.source})`
+      }
       data-die-id={die.id}
     >
       <svg className="die-svg" viewBox="0 0 60 60" aria-hidden>

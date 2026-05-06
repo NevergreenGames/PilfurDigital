@@ -1,5 +1,6 @@
 import {
   DieSize,
+  EventDef,
   Grid,
   HeistTarget,
   PhaseCard,
@@ -132,6 +133,17 @@ export function cardDifficulty(card: PhaseCard): 1 | 2 | 3 {
     if (req.length <= 3) return 2;
     return 3;
   }
+  if (req.kind === 'evens' || req.kind === 'odds') {
+    // Roughly 50/50 per die: 1 trivially common, 2 mid, 3+ tightens fast.
+    if (req.count <= 1) return 1;
+    if (req.count === 2) return 2;
+    return 3;
+  }
+  if (req.kind === 'maxes') {
+    // Max faces are rare per die (1/size), so even one is meaningful.
+    if (req.count <= 1) return 2;
+    return 3;
+  }
   return 2;
 }
 
@@ -251,6 +263,7 @@ export function generateGrid(
   nodeIndex: number,
   phasePool: PhaseCard[],
   goalPool: HeistTarget[],
+  eventPool: EventDef[] = [],
   rng: () => number = defaultRng,
 ): Grid {
   const cfg = configForNode(nodeIndex);
@@ -470,6 +483,51 @@ export function generateGrid(
   for (const t of placed) {
     const tpl = CACHE_TEMPLATES[Math.floor(rng() * CACHE_TEMPLATES.length)];
     t.card = cacheTemplateToCard(tpl, nodeIndex, t.pos);
+  }
+
+  // 9. Event ("?") tile placement. Like caches, these sit off the main
+  //    path and offer a side-quest decision point. Eligible tiles: any
+  //    plain phase tile (not a cache, not a target) at the right
+  //    chebyshev range from start and target. Picked tiles have their
+  //    card stripped and `kind` flipped to 'event' with an EventDef
+  //    selected from the pool. The interaction model differs from
+  //    phase tiles (clicking opens a modal rather than auto-fulfilling),
+  //    so the rest of the heist plumbing branches on `kind === 'event'`.
+  if (eventPool.length > 0) {
+    const EVENT_COUNT = nodeIndex === 0 ? 1 : 2;
+    const MIN_EVENT_DIST_FROM_START = nodeIndex === 0 ? 2 : 3;
+    const MIN_EVENT_DIST_FROM_TARGET = 2;
+    const cacheTileIds = new Set(placed.map((t) => t.id));
+    const eventCandidates: Tile[] = [];
+    for (const t of tiles) {
+      if (t.kind !== 'phase') continue;
+      if (cacheTileIds.has(t.id)) continue;
+      if (t.card?.cacheReward) continue;
+      if (chebyshev(t.pos, START_POS) < MIN_EVENT_DIST_FROM_START) continue;
+      if (chebyshev(t.pos, targetPos) < MIN_EVENT_DIST_FROM_TARGET) continue;
+      eventCandidates.push(t);
+    }
+    for (let i = eventCandidates.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(rng() * (i + 1));
+      [eventCandidates[i], eventCandidates[j]] = [
+        eventCandidates[j],
+        eventCandidates[i],
+      ];
+    }
+    // Shuffle the event pool so a heist doesn't hand out two copies of
+    // the same event when EVENT_COUNT > 1.
+    const eventDefs = [...eventPool];
+    for (let i = eventDefs.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(rng() * (i + 1));
+      [eventDefs[i], eventDefs[j]] = [eventDefs[j], eventDefs[i]];
+    }
+    const eventTiles = eventCandidates.slice(0, EVENT_COUNT);
+    eventTiles.forEach((t, idx) => {
+      const def = eventDefs[idx % eventDefs.length];
+      t.kind = 'event';
+      t.card = null;
+      t.eventDef = def;
+    });
   }
 
   return tempGridShell();

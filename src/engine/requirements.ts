@@ -10,13 +10,32 @@ export function describeRequirement(req: Requirement): string {
         gte: '≥',
         gt: '>',
       };
-      const count = req.minDice ? ` (use ${req.minDice}+ dice)` : '';
+      // exactDice wins; otherwise min/max combine into a "between" range
+      // when both are set, or render their own clause individually.
+      let count = '';
+      if (req.exactDice !== undefined) {
+        count = ` (use exactly ${req.exactDice} dice)`;
+      } else if (req.minDice !== undefined && req.maxDice !== undefined) {
+        count = ` (use ${req.minDice}-${req.maxDice} dice)`;
+      } else if (req.minDice !== undefined) {
+        count = ` (use ${req.minDice}+ dice)`;
+      } else if (req.maxDice !== undefined) {
+        count = ` (use up to ${req.maxDice} dice)`;
+      }
       return `sum ${opText[req.op]} ${req.value}${count}`;
     }
     case 'xOfAKind':
       return `${req.count} of a kind`;
     case 'straight':
       return `${req.length} in a row`;
+    case 'evens':
+      return req.count === 1 ? '1 even die' : `${req.count} even dice`;
+    case 'odds':
+      return req.count === 1 ? '1 odd die' : `${req.count} odd dice`;
+    case 'maxes':
+      return req.count === 1
+        ? '1 die showing its max'
+        : `${req.count} dice showing their max`;
   }
 }
 
@@ -35,13 +54,30 @@ function opPass(op: RequirementOp, actual: number, target: number): boolean {
   }
 }
 
+export interface SumSubsetBounds {
+  minDice?: number;
+  maxDice?: number;
+  exactDice?: number;
+}
+
 export function findSumSubset(
   dice: Die[],
   op: RequirementOp,
   target: number,
-  minDice = 1,
+  bounds: SumSubsetBounds = {},
   mustIncludeIds?: Set<string>,
 ): Die[] | null {
+  // exactDice takes precedence — when set, both ends collapse onto N.
+  // Otherwise a missing min defaults to 1 (always need to spend at least
+  // one die for a sum) and a missing max means "no upper bound".
+  const minDice =
+    bounds.exactDice !== undefined ? bounds.exactDice : (bounds.minDice ?? 1);
+  const maxDice =
+    bounds.exactDice !== undefined
+      ? bounds.exactDice
+      : bounds.maxDice ?? Number.POSITIVE_INFINITY;
+  if (minDice > maxDice) return null;
+
   const rolled = dice.filter((d) => d.value !== null);
   if (rolled.length < minDice) return null;
 
@@ -68,6 +104,7 @@ export function findSumSubset(
       }
     }
     if (subset.length < minDice) continue;
+    if (subset.length > maxDice) continue;
     if (!hasMust) continue;
     if (!opPass(op, s, target)) continue;
 
@@ -157,21 +194,84 @@ function findStraightSubset(
   return null;
 }
 
+// Generic count-based subset finder for parity / max-face requirements.
+// `predicate` selects which rolled dice qualify (even, odd, max-face). The
+// finder returns exactly `count` qualifying dice, biased toward must-include
+// ids first so the player's character die stays in the rotation when it
+// can contribute.
+function findCountSubset(
+  dice: Die[],
+  count: number,
+  predicate: (d: Die) => boolean,
+  mustIncludeIds?: Set<string>,
+): Die[] | null {
+  const matching = dice.filter((d) => d.value !== null && predicate(d));
+  if (matching.length < count) return null;
+  const filterActive = !!mustIncludeIds && mustIncludeIds.size > 0;
+  if (filterActive) {
+    const must = matching.filter((d) => mustIncludeIds!.has(d.id));
+    if (must.length === 0) return null;
+    const others = matching.filter((d) => !mustIncludeIds!.has(d.id));
+    return [...must, ...others].slice(0, count);
+  }
+  return matching.slice(0, count);
+}
+
+const isEven = (d: Die) =>
+  d.value !== null && (d.value as number) % 2 === 0;
+const isOdd = (d: Die) =>
+  d.value !== null && (d.value as number) % 2 === 1;
+const isMaxFace = (d: Die) =>
+  d.value !== null && (d.value as number) === d.size;
+
 // Internal helper that dispatches by requirement kind.
 function findInner(
   dice: Die[],
   req: Requirement,
   mustIncludeIds?: Set<string>,
 ): Die[] | null {
-  if (req.kind === 'sum') return findSumSubset(dice, req.op, req.value, req.minDice, mustIncludeIds);
-  if (req.kind === 'xOfAKind') return findKindSubset(dice, req.count, mustIncludeIds);
-  return findStraightSubset(dice, req.length, mustIncludeIds);
+  switch (req.kind) {
+    case 'sum':
+      return findSumSubset(
+        dice,
+        req.op,
+        req.value,
+        {
+          minDice: req.minDice,
+          maxDice: req.maxDice,
+          exactDice: req.exactDice,
+        },
+        mustIncludeIds,
+      );
+    case 'xOfAKind':
+      return findKindSubset(dice, req.count, mustIncludeIds);
+    case 'straight':
+      return findStraightSubset(dice, req.length, mustIncludeIds);
+    case 'evens':
+      return findCountSubset(dice, req.count, isEven, mustIncludeIds);
+    case 'odds':
+      return findCountSubset(dice, req.count, isOdd, mustIncludeIds);
+    case 'maxes':
+      return findCountSubset(dice, req.count, isMaxFace, mustIncludeIds);
+  }
 }
 
 export function findSatisfyingSubset(dice: Die[], req: Requirement): Die[] | null {
-  // Prefer subsets that include the player's character die — keeps it
-  // rolling so it can max-roll and level up. If no satisfying subset
-  // includes a character die, fall back to the regular search.
+  // Priority order:
+  //  1. Subsets that include a ghost die. Ghosts evaporate on the next
+  //     fulfillment regardless, so spending them as part of the
+  //     fulfillment is strictly better — they at least contribute their
+  //     value before fading.
+  //  2. Subsets that include the character die — keeps it rolling so it
+  //     can max-roll and level up.
+  //  3. Anything that satisfies.
+  const ghostIds = new Set(
+    dice.filter((d) => d.source === 'ghost' && d.value !== null).map((d) => d.id),
+  );
+  if (ghostIds.size > 0) {
+    const withGhost = findInner(dice, req, ghostIds);
+    if (withGhost) return withGhost;
+  }
   const charIds = new Set(
     dice
       .filter((d) => d.source === 'character' && d.value !== null)
@@ -188,13 +288,30 @@ export function isSubsetSatisfying(subset: Die[], req: Requirement): boolean {
   if (subset.some((d) => d.value === null)) return false;
   if (req.kind === 'sum') {
     const s = subset.reduce((a, d) => a + (d.value ?? 0), 0);
-    if (req.minDice && subset.length < req.minDice) return false;
+    if (req.exactDice !== undefined) {
+      if (subset.length !== req.exactDice) return false;
+    } else {
+      if (req.minDice !== undefined && subset.length < req.minDice) return false;
+      if (req.maxDice !== undefined && subset.length > req.maxDice) return false;
+    }
     return opPass(req.op, s, req.value);
   }
   if (req.kind === 'xOfAKind') {
     if (subset.length !== req.count) return false;
     const v = subset[0].value;
     return subset.every((d) => d.value === v);
+  }
+  if (req.kind === 'evens') {
+    if (subset.length !== req.count) return false;
+    return subset.every(isEven);
+  }
+  if (req.kind === 'odds') {
+    if (subset.length !== req.count) return false;
+    return subset.every(isOdd);
+  }
+  if (req.kind === 'maxes') {
+    if (subset.length !== req.count) return false;
+    return subset.every(isMaxFace);
   }
   if (subset.length !== req.length) return false;
   const vals = subset.map((d) => d.value as number).sort((a, b) => a - b);

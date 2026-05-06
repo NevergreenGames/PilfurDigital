@@ -144,4 +144,36 @@ export const draftedAbilityPool: CharacterAbility[] = [
     trigger: { kind: 'sum', op: 'gte', value: 15, minDice: 3 },
     effect: { id: 'removeHeat', text: 'Remove 1 heat die', params: { count: 1 } },
   },
+
+  // --- Former character signatures, now draftable ---------------------------
+  {
+    id: 'backdoor',
+    name: 'BACKDOOR',
+    icon: '💻',
+    text: 'Spend a charge to set a pool die to its max.',
+    flavor: 'Rigs a back channel into any system.',
+    cost: 8,
+    trigger: { kind: 'xOfAKind', count: 3 },
+    effect: { id: 'setDieToMax', text: 'Set a die to its max', requiresTarget: 'die' },
+  },
+  {
+    id: 'shapedCharge',
+    name: 'SHAPED CHARGE',
+    icon: '💣',
+    text: 'Spend a charge to reroll every die in the pool.',
+    flavor: 'Blows the door clean off.',
+    cost: 9,
+    trigger: { kind: 'sum', op: 'gte', value: 12, minDice: 2 },
+    effect: { id: 'rerollAll', text: 'Reroll all pool dice' },
+  },
+  {
+    id: 'steadyHand',
+    name: 'STEADY HAND',
+    icon: '🎯',
+    text: 'Spend a charge to remove 2 heat.',
+    flavor: 'Does the hard work calmly, even under the lights.',
+    cost: 9,
+    trigger: { kind: 'straight', length: 4 },
+    effect: { id: 'removeHeat', text: 'Remove 2 heat dice', params: { count: 2 } },
+  },
 ];

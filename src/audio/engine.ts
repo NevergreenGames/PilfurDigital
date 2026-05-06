@@ -28,6 +28,7 @@ const SCREEN_TO_CONTEXT: Record<Screen, Context> = {
   heist: 'heist',
   draft: 'idle',
   gameOver: 'outcome',
+  dev: 'idle',
 };
 
 const FADE_MS = 800;

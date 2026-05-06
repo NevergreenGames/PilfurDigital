@@ -63,6 +63,10 @@ function isUnfulfilledRevealed(t: Tile): boolean {
   return t.state === 'revealed' && !!t.card;
 }
 
+function isInteractableEvent(t: Tile): boolean {
+  return t.kind === 'event' && t.state === 'revealed' && !!t.eventDef;
+}
+
 export function GridView({
   heist,
   selectedDice,
@@ -266,6 +270,7 @@ export function GridView({
       if (dr > 1 || dc > 1) continue;
       if (isWalkable(tile)) return true;
       if (isUnfulfilledRevealed(tile)) return true;
+      if (isInteractableEvent(tile)) return true;
     }
     return false;
   }, [grid.tiles, player.row, player.col, isOver]);
@@ -423,7 +428,13 @@ export function GridView({
             const willSucceed =
               fulfillable && (willSucceedByTileId.get(tile.id) ?? false);
 
-            const canFulfill = fulfillable;
+            // Event tiles are clickable in their own way — they don't have
+            // a card / requirement, but the same yellow "fulfillable" outline
+            // surfaces them as a viable next action. Treated as canFulfill
+            // so the click handler routes through onTileClick.
+            const eventInteractable =
+              !isOver && adjacent && isInteractableEvent(tile);
+            const canFulfill = fulfillable || eventInteractable;
 
             const hoverable =
               !isOver &&

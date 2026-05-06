@@ -125,6 +125,33 @@ button.small { padding: 4px 8px; font-size: 11px; margin-left: 8px; }
   flex-direction: column;
   gap: 10px;
 }
+.character-card--locked {
+  opacity: 0.55;
+  filter: grayscale(0.6);
+}
+.character-locked {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: stretch;
+}
+.character-locked-badge {
+  font-size: 12px;
+  font-weight: bold;
+  letter-spacing: 2px;
+  color: var(--muted);
+  text-align: center;
+  padding: 4px 0;
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.25);
+}
+.character-locked-hint {
+  font-size: 11px;
+  color: var(--muted);
+  text-align: center;
+  font-style: italic;
+}
 
 .character-name { font-size: 18px; font-weight: bold; letter-spacing: 2px; }
 /* Character header — name + starting-die glyph, side by side. */
@@ -162,6 +189,16 @@ button.small { padding: 4px 8px; font-size: 11px; margin-left: 8px; }
   font-size: 18px;
   line-height: 1;
   filter: drop-shadow(0 0 6px rgba(224, 175, 104, 0.55));
+}
+.passive-badge {
+  background: var(--phase);
+  color: var(--bg);
+  font-size: 9px;
+  font-weight: bold;
+  letter-spacing: 1px;
+  padding: 1px 6px;
+  border-radius: 2px;
+  margin-left: auto;
 }
 
 /* Three-tier ability hierarchy, shared by CharacterSelect + Draft screens. */
@@ -438,6 +475,58 @@ button.small { padding: 4px 8px; font-size: 11px; margin-left: 8px; }
   z-index: 2;
 }
 
+/* Ghost dice — temporary, evaporate on the next fulfillment. The die
+   gets a violet hue, an idly-glitching value/size pair (CRT-style RGB
+   offset shimmer), and a "ghost" badge in the corner so it reads as
+   something distinct from a normal pool die. */
+.die.die--ghost-source {
+  /* Soft violet aura always-on. */
+  filter: drop-shadow(0 0 6px rgba(187, 154, 247, 0.55));
+  animation: ghost-flicker 2400ms steps(12, end) infinite;
+}
+.die.die--ghost-source .die-svg polygon {
+  stroke-dasharray: 6 4;
+  animation: ghost-dash 1800ms linear infinite;
+}
+.die.die--ghost-source .die-value {
+  /* Layered text glitch — duplicate offset color "ghosts" cycle to
+     simulate chromatic aberration. */
+  text-shadow:
+    1px 0 0 rgba(247, 118, 142, 0.55),
+    -1px 0 0 rgba(108, 255, 224, 0.5);
+  animation: ghost-jitter 1100ms steps(8, end) infinite;
+}
+.die.die--ghost-source::before {
+  content: '👻';
+  position: absolute;
+  top: -6px;
+  left: -6px;
+  font-size: 12px;
+  line-height: 1;
+  filter: drop-shadow(0 0 4px rgba(187, 154, 247, 0.85));
+  pointer-events: none;
+  z-index: 2;
+  animation: ghost-flicker 1700ms steps(7, end) infinite;
+}
+
+@keyframes ghost-flicker {
+  0%, 88%, 100% { opacity: 1; }
+  90% { opacity: 0.55; }
+  92% { opacity: 1; }
+  94% { opacity: 0.35; }
+  96% { opacity: 1; }
+}
+@keyframes ghost-jitter {
+  0%, 100% { transform: translate(0, 0); }
+  20% { transform: translate(0.5px, -0.5px); }
+  40% { transform: translate(-0.5px, 0.5px); }
+  60% { transform: translate(0.4px, 0.3px); }
+  80% { transform: translate(-0.3px, -0.4px); }
+}
+@keyframes ghost-dash {
+  to { stroke-dashoffset: -20; }
+}
+
 /* Draft */
 .draft-row {
   display: flex;
@@ -484,4 +573,633 @@ button.small { padding: 4px 8px; font-size: 11px; margin-left: 8px; }
 .game-over h1 {
   font-size: 48px;
   letter-spacing: 6px;
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   DEV PANEL — design tuning UI. Pure-text editor over the four content
+   collections (phase cards, abilities, heist targets, "?" events).
+   Patches persist to localStorage; live game uses contentRegistry to
+   merge base + patches on every read.
+   ────────────────────────────────────────────────────────────────── */
+
+.dev-panel-fab {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  z-index: 50;
+  background: rgba(20, 22, 30, 0.92);
+  color: #6cffe0;
+  border: 1px solid #6cffe0;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 11px;
+  font-weight: bold;
+  letter-spacing: 2px;
+  cursor: pointer;
+  box-shadow: 0 0 12px rgba(108, 255, 224, 0.25);
+  transition: all 120ms ease;
+  opacity: 0.65;
+}
+.dev-panel-fab:hover {
+  opacity: 1;
+  box-shadow: 0 0 18px rgba(108, 255, 224, 0.5);
+}
+
+.dev-panel {
+  max-width: 1300px;
+  margin: 0 auto;
+  padding: 16px 20px 60px;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  color: var(--fg);
+}
+.dev-panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px dashed var(--border);
+  margin-bottom: 14px;
+}
+.dev-panel-title h1 {
+  margin: 0;
+  font-size: 24px;
+  letter-spacing: 4px;
+  color: #6cffe0;
+  text-shadow: 0 0 12px rgba(108, 255, 224, 0.3);
+}
+.dev-panel-tag {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: rgba(108, 255, 224, 0.6);
+  margin-bottom: 2px;
+}
+.dev-panel-toolbar {
+  display: flex;
+  gap: 8px;
+}
+.dev-panel-toolbar button {
+  font-family: inherit;
+  letter-spacing: 1px;
+  font-size: 11px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-3);
+  color: var(--fg);
+  cursor: pointer;
+}
+.dev-panel-toolbar button:hover {
+  border-color: var(--accent);
+}
+.dev-panel-toolbar button.primary {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+  font-weight: bold;
+}
+.dev-panel-toolbar button.danger-ish {
+  border-color: rgba(255, 138, 160, 0.6);
+  color: #ff8aa0;
+}
+
+.dev-panel-tabs {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 8px;
+}
+.dev-tab {
+  position: relative;
+  padding: 8px 14px;
+  font-family: inherit;
+  font-size: 11px;
+  letter-spacing: 2px;
+  background: var(--bg-2);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: var(--radius) var(--radius) 0 0;
+  cursor: pointer;
+}
+.dev-tab:hover {
+  color: var(--fg);
+}
+.dev-tab--active {
+  background: var(--bg-3);
+  color: #6cffe0;
+  border-color: #6cffe0;
+}
+.dev-tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 6px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 5px;
+  font-size: 10px;
+  font-weight: bold;
+  letter-spacing: 0;
+  background: var(--accent);
+  color: var(--bg);
+  border-radius: 999px;
+}
+
+.dev-panel-help {
+  font-size: 11px;
+  color: var(--muted);
+  background: rgba(108, 255, 224, 0.05);
+  border: 1px dashed rgba(108, 255, 224, 0.25);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  line-height: 1.5;
+}
+.dev-panel-help strong {
+  color: #6cffe0;
+}
+.dev-panel-status {
+  background: rgba(182, 224, 122, 0.1);
+  border: 1px solid var(--stash);
+  color: var(--stash);
+  padding: 6px 12px;
+  border-radius: var(--radius);
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+
+.dev-panel-debug {
+  background: rgba(255, 100, 200, 0.06);
+  border: 1px dashed rgba(255, 100, 200, 0.35);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  margin-bottom: 10px;
+}
+.dev-panel-debug-title {
+  font-size: 10px;
+  font-weight: bold;
+  letter-spacing: 2px;
+  color: rgba(255, 130, 210, 0.85);
+  margin-bottom: 6px;
+}
+.dev-panel-debug-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.dev-panel-debug-label {
+  font-size: 12px;
+  color: var(--fg);
+  flex: 1 1 auto;
+  min-width: 200px;
+}
+.dev-panel-debug-label .muted {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.dev-panel-body {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 14px;
+  align-items: stretch;
+  min-height: 70vh;
+}
+.dev-list {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  max-height: 75vh;
+  overflow: hidden;
+}
+.dev-list-header {
+  padding: 8px 12px;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+.dev-list ul {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  flex: 1;
+}
+.dev-list-item {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  padding: 6px 10px;
+  font-family: inherit;
+  font-size: 12px;
+  letter-spacing: 0.5px;
+  color: var(--fg);
+  cursor: pointer;
+  margin-bottom: 2px;
+}
+.dev-list-item:hover {
+  background: rgba(108, 255, 224, 0.06);
+  border-color: rgba(108, 255, 224, 0.3);
+}
+.dev-list-item--active {
+  background: rgba(108, 255, 224, 0.12);
+  border-color: #6cffe0;
+}
+.dev-list-item--overridden .dev-list-name {
+  color: var(--accent);
+}
+.dev-list-name {
+  font-weight: bold;
+  letter-spacing: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dev-list-id {
+  font-size: 10px;
+  color: var(--muted);
+  font-style: italic;
+}
+.dev-list-flag {
+  color: var(--accent);
+  font-weight: bold;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.dev-detail {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.dev-detail-empty {
+  color: var(--muted);
+  font-style: italic;
+  margin: auto;
+}
+.dev-detail-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px dashed var(--border);
+  padding-bottom: 8px;
+}
+.dev-detail-head h2 {
+  margin: 0;
+  font-size: 16px;
+  letter-spacing: 2px;
+  color: var(--fg);
+  display: inline;
+}
+.dev-detail-id {
+  display: inline-block;
+  margin-left: 10px;
+  font-size: 11px;
+  color: var(--muted);
+  font-style: italic;
+}
+.dev-detail-pill {
+  display: inline-block;
+  margin-left: 10px;
+  font-size: 9px;
+  letter-spacing: 2px;
+  font-weight: bold;
+  background: var(--accent);
+  color: var(--bg);
+  padding: 2px 6px;
+  border-radius: 2px;
+  vertical-align: middle;
+}
+.dev-detail-actions {
+  display: flex;
+  gap: 6px;
+}
+.dev-detail-actions button {
+  font-family: inherit;
+  font-size: 11px;
+  letter-spacing: 1px;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  background: var(--bg-3);
+  color: var(--fg);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.dev-detail-actions button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.dev-detail-actions button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.dev-detail-actions button.primary {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+  font-weight: bold;
+}
+
+.dev-json-editor {
+  width: 100%;
+  flex: 1;
+  min-height: 380px;
+  background: #050509;
+  color: #d8f0e8;
+  border: 1px solid #2a3a3a;
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  resize: vertical;
+}
+.dev-json-editor:focus {
+  border-color: #6cffe0;
+  outline: none;
+  box-shadow: 0 0 12px rgba(108, 255, 224, 0.2);
+}
+.dev-parse-error {
+  color: #ff8aa0;
+  background: rgba(255, 138, 160, 0.08);
+  border: 1px solid #ff8aa0;
+  border-radius: var(--radius);
+  padding: 6px 12px;
+  font-size: 11px;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+.dev-base-snapshot {
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 6px 10px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.dev-base-snapshot summary {
+  cursor: pointer;
+  letter-spacing: 1px;
+  color: var(--muted);
+}
+.dev-base-snapshot pre {
+  margin: 8px 0 0;
+  padding: 8px;
+  background: #050509;
+  color: #a0a0b8;
+  border-radius: var(--radius);
+  overflow: auto;
+  max-height: 240px;
+  font-size: 11px;
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   Dev panel — form editors. Replaces the old JSON-textarea workflow
+   with labeled inputs / dropdowns / list editors per field type. The
+   shape of each form is computed by ItemEditors in DevPanelEditors.tsx;
+   these styles just give the controls a coherent dev-tool look.
+   ────────────────────────────────────────────────────────────────── */
+
+.dev-detail-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1;
+  overflow-y: auto;
+  padding-right: 4px;
+  min-height: 0;
+}
+
+.dev-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.dev-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.dev-field--inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+.dev-field--inline > .dev-field-label {
+  min-width: 120px;
+  margin: 0;
+}
+.dev-field-label {
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+.dev-field-control {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.dev-field-hint {
+  font-size: 11px;
+  color: var(--muted);
+  font-style: italic;
+}
+
+.dev-field--optional {
+  border-left: 2px dashed var(--border);
+  padding: 6px 10px;
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: var(--radius);
+}
+.dev-field--optional.dev-field--enabled {
+  border-left-color: #6cffe0;
+  background: rgba(108, 255, 224, 0.04);
+}
+.dev-field-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+.dev-field-toggle input[type='checkbox'] {
+  accent-color: #6cffe0;
+}
+.dev-field-toggle .dev-field-label {
+  margin: 0;
+}
+
+/* Inputs */
+.dev-input {
+  background: #050509;
+  color: #d8f0e8;
+  border: 1px solid #2a3a3a;
+  border-radius: var(--radius);
+  padding: 6px 10px;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+  letter-spacing: 0.5px;
+  min-width: 0;
+}
+.dev-input:focus {
+  outline: none;
+  border-color: #6cffe0;
+  box-shadow: 0 0 8px rgba(108, 255, 224, 0.25);
+}
+.dev-input--number {
+  width: 100px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.dev-input--small {
+  padding: 3px 6px;
+  font-size: 11px;
+}
+.dev-input--select {
+  background-color: #050509;
+  cursor: pointer;
+}
+.dev-input--textarea {
+  width: 100%;
+  resize: vertical;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  line-height: 1.5;
+}
+
+input[type='checkbox'].dev-checkbox {
+  accent-color: #6cffe0;
+}
+
+/* Sub-editors (Requirement, Effect, Reward) — boxed group with a
+   subtle frame so each compound field reads as one unit. */
+.dev-sub {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: rgba(0, 0, 0, 0.15);
+}
+
+/* Die size list (momentum dice, opposing dice, addDice params). */
+.dev-die-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.dev-die-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 2px 4px 2px 6px;
+}
+.dev-die-rm {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0 2px;
+  letter-spacing: 0;
+}
+.dev-die-rm:hover {
+  color: #ff8aa0;
+}
+.dev-die-add {
+  font-size: 11px;
+  letter-spacing: 1px;
+  padding: 4px 10px;
+  border: 1px dashed #6cffe0;
+  background: transparent;
+  color: #6cffe0;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.dev-die-add:hover {
+  background: rgba(108, 255, 224, 0.1);
+}
+
+/* Event-choice editor */
+.dev-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.dev-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: rgba(198, 108, 255, 0.04);
+  position: relative;
+}
+.dev-choice-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px dashed var(--border);
+  padding-bottom: 6px;
+  margin-bottom: 2px;
+}
+.dev-choice-num {
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: #c66cff;
+  font-weight: bold;
+}
+.dev-choice-rm {
+  font-size: 10px;
+  letter-spacing: 1px;
+  padding: 4px 10px;
+  border: 1px solid rgba(255, 138, 160, 0.5);
+  color: #ff8aa0;
+  background: transparent;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.dev-choice-rm:hover {
+  background: rgba(255, 138, 160, 0.1);
+}
+.dev-choice-add {
+  align-self: flex-start;
+  font-size: 11px;
+  letter-spacing: 1px;
+  padding: 6px 14px;
+  border: 1px dashed #c66cff;
+  background: transparent;
+  color: #c66cff;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.dev-choice-add:hover {
+  background: rgba(198, 108, 255, 0.1);
+}
+
+.dev-detail-pill--dirty {
+  background: #ff8aa0;
+  color: var(--bg);
 }

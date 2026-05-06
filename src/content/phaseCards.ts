@@ -166,6 +166,55 @@ export const PHASE_CARDS: PhaseCard[] = [
     momentumDice: [6, 6],
     onPlayEffect: { id: 'setDieToMax', text: 'Set one die to its max', requiresTarget: 'die' },
   },
+
+  // --- Parity / max-face phase cards ----------------------------------------
+  // Lean on the new evens / odds / maxes requirement kinds. Names skew
+  // cyberpunk-systems so the requirements read thematically.
+  {
+    id: 'fiberSplice',
+    name: 'FIBER SPLICE',
+    type: 'phase',
+    requirement: { kind: 'evens', count: 2 },
+    momentumDice: [6, 4],
+  },
+  {
+    id: 'parityHack',
+    name: 'PARITY HACK',
+    type: 'phase',
+    requirement: { kind: 'evens', count: 3 },
+    momentumDice: [6, 6],
+    onPlayEffect: { id: 'rerollLowest', text: 'Reroll the lowest die' },
+  },
+  {
+    id: 'oddRouting',
+    name: 'ODD ROUTING',
+    type: 'phase',
+    requirement: { kind: 'odds', count: 2 },
+    momentumDice: [6, 4],
+  },
+  {
+    id: 'primeChannel',
+    name: 'PRIME CHANNEL',
+    type: 'phase',
+    requirement: { kind: 'odds', count: 3 },
+    momentumDice: [6, 6],
+    onPlayEffect: { id: 'rerollHighest', text: 'Reroll the highest die' },
+  },
+  {
+    id: 'maxOverclock',
+    name: 'MAX OVERCLOCK',
+    type: 'phase',
+    requirement: { kind: 'maxes', count: 2 },
+    momentumDice: [8, 6],
+    onPlayEffect: { id: 'setDieToMax', text: 'Set one die to its max', requiresTarget: 'die' },
+  },
+  {
+    id: 'criticalBurn',
+    name: 'CRITICAL BURN',
+    type: 'phase',
+    requirement: { kind: 'maxes', count: 1 },
+    momentumDice: [8],
+  },
 ];
 
 export function getPhaseCard(id: string): PhaseCard | undefined {

@@ -56,8 +56,9 @@ export function iconForCard(card: PhaseCard): string {
   return nameBasedIcon(card.name);
 }
 
-// Requirement glyph encoding:
-//   Σ = sum, × = x-of-a-kind, ↗ = straight
+// Requirement glyph encoding (compact, one-line per tile face):
+//   Σ = sum, × = x-of-a-kind, ↗ = straight,
+//   ◐ = evens, ◑ = odds, ★ = maxes (count follows the symbol).
 const OP_GLYPH: Record<string, string> = {
   lt: '<',
   lte: '≤',
@@ -70,13 +71,33 @@ export function requirementGlyph(req: Requirement): string {
   switch (req.kind) {
     case 'sum': {
       const op = OP_GLYPH[req.op] ?? '=';
-      const suffix = req.minDice && req.minDice > 1 ? `·${req.minDice}+` : '';
+      // Compact suffix encoding for the dice-count constraints.
+      //   exactDice=N     → "·=N"
+      //   min+max         → "·M-N"
+      //   min only (>1)   → "·M+"
+      //   max only        → "·≤N"
+      let suffix = '';
+      if (req.exactDice !== undefined) {
+        suffix = `·=${req.exactDice}`;
+      } else if (req.minDice !== undefined && req.maxDice !== undefined) {
+        suffix = `·${req.minDice}-${req.maxDice}`;
+      } else if (req.minDice && req.minDice > 1) {
+        suffix = `·${req.minDice}+`;
+      } else if (req.maxDice !== undefined) {
+        suffix = `·≤${req.maxDice}`;
+      }
       return `Σ${op}${req.value}${suffix}`;
     }
     case 'xOfAKind':
       return `×${req.count}`;
     case 'straight':
       return `↗${req.length}`;
+    case 'evens':
+      return `◐${req.count}`;
+    case 'odds':
+      return `◑${req.count}`;
+    case 'maxes':
+      return `★${req.count}`;
   }
 }
 
@@ -129,6 +150,11 @@ export function TileView({
   // normal fog reveal.
   const isCache = !!tile.card?.cacheReward;
   if (isCache) classes.push('hg-tile--cache');
+  // Event tiles ("?" nodes) wear a magenta accent at every state so the
+  // player can spot them through fog and aim for them — same idea as the
+  // cache treatment.
+  const isEvent = tile.kind === 'event' && !!tile.eventDef;
+  if (isEvent) classes.push('hg-tile--event');
 
   const interactive = canMove || canFulfill;
 
@@ -139,6 +165,7 @@ export function TileView({
   const showFog = isHidden;
   const peekTarget = isHidden && isTargetTile && tile.card;
   const peekCache = isHidden && isCache && !peekTarget;
+  const peekEvent = isHidden && isEvent && !peekTarget && !peekCache;
 
   // Only show the full card (icon / requirement / reward dice) on revealed,
   // unfulfilled tiles. Fulfilled tiles are just footprints per spec.
@@ -199,6 +226,15 @@ export function TileView({
         </div>
       )}
 
+      {/* Event tile — large "?" sigil. Renders only while still revealed
+          (unconsumed). After the player resolves the modal the tile state
+          flips to playerFulfilled, which the ✓ marker below picks up. */}
+      {!isHidden && isEvent && tile.state === 'revealed' && (
+        <div className="hg-tile-head">
+          <div className="hg-tile-event-glyph" aria-hidden>?</div>
+        </div>
+      )}
+
       {/* Faint reroll glyph on walkable adjacent tiles — clicking moves the
           player onto the tile, which ends the turn and rerolls dice. */}
       {canMove && !isPlayer && (
@@ -227,13 +263,15 @@ export function TileView({
         <div
           className={`hg-tile-fog ${peekTarget ? 'hg-tile-fog--target-peek' : ''} ${
             peekCache ? 'hg-tile-fog--cache-peek' : ''
-          }`}
+          } ${peekEvent ? 'hg-tile-fog--event-peek' : ''}`}
         >
           {peekTarget && tile.card
             ? iconForCard(tile.card)
             : peekCache
               ? '¢'
-              : ''}
+              : peekEvent
+                ? '?'
+                : ''}
         </div>
       )}
 

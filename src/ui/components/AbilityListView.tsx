@@ -14,13 +14,21 @@ function triggerText(req: Requirement): string {
         gte: 'at least',
         gt: 'over',
       };
-      const minDice =
-        req.minDice && req.minDice > 1
-          ? ` from ${req.minDice}+ dice`
-          : req.minDice === 1
-            ? ' (1 die)'
-            : '';
-      return `a sum ${opWord[req.op]} ${req.value}${minDice}`;
+      // Same precedence as describeRequirement: exactDice → min+max →
+      // min only → max only.
+      let countClause = '';
+      if (req.exactDice !== undefined) {
+        countClause = ` from exactly ${req.exactDice} dice`;
+      } else if (req.minDice !== undefined && req.maxDice !== undefined) {
+        countClause = ` from ${req.minDice}-${req.maxDice} dice`;
+      } else if (req.minDice && req.minDice > 1) {
+        countClause = ` from ${req.minDice}+ dice`;
+      } else if (req.minDice === 1) {
+        countClause = ' (1 die)';
+      } else if (req.maxDice !== undefined) {
+        countClause = ` from up to ${req.maxDice} dice`;
+      }
+      return `a sum ${opWord[req.op]} ${req.value}${countClause}`;
     }
     case 'xOfAKind': {
       const words: Record<number, string> = {
@@ -33,6 +41,14 @@ function triggerText(req: Requirement): string {
     }
     case 'straight':
       return `a ${req.length}-straight`;
+    case 'evens':
+      return req.count === 1 ? 'an even die' : `${req.count} even dice`;
+    case 'odds':
+      return req.count === 1 ? 'an odd die' : `${req.count} odd dice`;
+    case 'maxes':
+      return req.count === 1
+        ? 'a die showing its max'
+        : `${req.count} dice showing their max`;
   }
 }
 

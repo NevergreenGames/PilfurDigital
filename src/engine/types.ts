@@ -2,7 +2,11 @@ export type DieSize = 4 | 6 | 8 | 10 | 12 | 20;
 
 export const DIE_PROGRESSION: readonly DieSize[] = [4, 6, 8, 10, 12, 20] as const;
 
-export type DieSource = 'phase' | 'character' | 'heat' | 'stash';
+// 'ghost' marks temporary "borrowed" dice that fade on the next fulfillment
+// (phase / cache / target). Visible in the pool, rolled like any other die,
+// and prioritized by the auto-selector so they tend to contribute before
+// they evaporate. See playerFulfillTile + findSatisfyingSubset.
+export type DieSource = 'phase' | 'character' | 'heat' | 'stash' | 'ghost';
 
 export interface Die {
   id: string;
@@ -15,9 +19,26 @@ export interface Die {
 export type RequirementOp = 'lt' | 'lte' | 'eq' | 'gte' | 'gt';
 
 export type Requirement =
-  | { kind: 'sum'; op: RequirementOp; value: number; minDice?: number }
+  // Sum-of-faces requirement.
+  //   `minDice` — at least N dice must be used (default 1).
+  //   `maxDice` — at most N dice may be used.
+  //   `exactDice` — exactly N dice (overrides min/max when set).
+  | {
+      kind: 'sum';
+      op: RequirementOp;
+      value: number;
+      minDice?: number;
+      maxDice?: number;
+      exactDice?: number;
+    }
   | { kind: 'xOfAKind'; count: number }
-  | { kind: 'straight'; length: number };
+  | { kind: 'straight'; length: number }
+  // N dice currently showing an even value (2/4/6/...).
+  | { kind: 'evens'; count: number }
+  // N dice currently showing an odd value (1/3/5/...).
+  | { kind: 'odds'; count: number }
+  // N dice currently showing their maximum face (e.g. a d6 showing 6).
+  | { kind: 'maxes'; count: number };
 
 export type EffectId =
   | 'rerollHighest'
@@ -76,11 +97,33 @@ export interface CharacterAbility {
   effect: EffectSpec;
 }
 
+// Character passives are always-on traits that bend a core rule of the game,
+// instead of charge-based active abilities. Each character has exactly one.
+// The id is consumed by gameStore where it gates the relevant rule branch
+// (e.g. 'bonusD6OnPhaseFulfill' adds a fresh d6 inside playerFulfillTile).
+export type PassiveId =
+  | 'bonusD6OnPhaseFulfill'
+  | 'noHeatRerollOnPhaseFulfill'
+  | 'keepMomentumBetweenHeists'
+  // PHANTOM: every phase fulfillment grafts two temporary ghost d4s onto
+  // the pool. Ghosts evaporate on the *next* fulfillment (whether or not
+  // they were used), so the player gets a one-roll surge and has to spend
+  // them or watch them fade.
+  | 'ghostDiceOnPhaseFulfill';
+
+export interface CharacterPassive {
+  id: PassiveId;
+  name: string;
+  icon: string;
+  text: string;
+  flavor?: string;
+}
+
 export interface Character {
   id: string;
   name: string;
   startingDie: DieSize;
-  ability: CharacterAbility;
+  passive: CharacterPassive;
   flavor?: string;
 }
 
@@ -103,7 +146,8 @@ export type Screen =
   | 'map'
   | 'heist'
   | 'draft'
-  | 'gameOver';
+  | 'gameOver'
+  | 'dev';
 
 export interface MapNode {
   index: number;
@@ -114,10 +158,87 @@ export interface MapNode {
 // --- Grid / Heist types (new) ---
 
 export type Position = { row: number; col: number };
-export type TileKind = 'start' | 'wall' | 'phase' | 'target' | 'void';
+export type TileKind = 'start' | 'wall' | 'phase' | 'target' | 'void' | 'event';
 export type TileState = 'hidden' | 'revealed' | 'playerFulfilled' | 'heatFulfilled';
 export type TileId = string;
 export type HeistOutcome = 'won' | 'captured' | 'trapped';
+
+// ───────────────────────────────────────────────────────────────────────────
+// Event tiles ("?" nodes) — narrative pop-ups that present 1-3 dice-flavored
+// choices to the player. Choices fall into one of a small handful of kinds,
+// each implying a different cost/check shape (creds, sacrifice a die of a
+// given size, sacrifice an owned ability, oppose-roll, threshold check).
+// gameStore.resolveEventChoice consumes the picked choice + any per-kind
+// params (selected die / ability id / dice subset) and applies the outcome.
+// ───────────────────────────────────────────────────────────────────────────
+export type EventChoiceKind =
+  | 'payCreds'        // flat cred cost → reward
+  | 'payDie'          // sacrifice a pool die of `dieSize` → reward
+  | 'payAbility'      // sacrifice an owned ability → reward
+  | 'opposeRoll'      // sum of selected pool dice ≥ sum of opposing roll
+  | 'thresholdRoll'   // a single selected pool die's value ≥ `threshold`
+  | 'walkAway';
+
+export interface EventReward {
+  creds?: number;
+  poolDie?: DieSize;
+  // Adds a temporary "ghost" die of the given size to the pool. Ghost dice
+  // are consumed on the next fulfillment (phase / cache / target) whether
+  // or not they were used to satisfy the requirement, so they're a "use it
+  // now" power surge.
+  ghostDie?: DieSize;
+  removeHeat?: number;
+  // When set, grants one ability from the rare-only pool (events are the
+  // sole acquisition path). The ability is appended to run.abilities.
+  rareAbility?: boolean;
+}
+
+export interface EventChoice {
+  id: string;
+  kind: EventChoiceKind;
+  // Button label.
+  label: string;
+  // Inline cost glyph rendered as a chip on the choice button.
+  costLabel?: string;
+  // Inline reward glyph rendered as a chip on the choice button.
+  rewardLabel?: string;
+  // Optional longer hint shown beneath the label.
+  hint?: string;
+  // payCreds / opposeRoll fallback amount.
+  creds?: number;
+  // payDie — required pool-die size (the modal asks the player to pick one).
+  dieSize?: DieSize;
+  // opposeRoll — sizes of the NPC's dice (rolled when the modal opens).
+  opposingDice?: DieSize[];
+  // thresholdRoll — minimum value the selected die must show.
+  threshold?: number;
+  // Outcome on success (or unconditional for non-roll choices).
+  reward?: EventReward;
+  // Outcome on failure (roll-based choices only). When omitted, a failed
+  // roll has no penalty beyond losing the consumed dice / commitment.
+  penalty?: EventReward;
+}
+
+export interface EventDef {
+  id: string;
+  // Headline rendered at the top of the modal.
+  title: string;
+  // Narrative paragraph. Words animate in sequentially with a glitch flicker.
+  flavor: string;
+  choices: EventChoice[];
+}
+
+// Mid-resolution snapshot. Set by gameStore.openEvent when the player
+// triggers an event tile; cleared by closeEvent / resolveEventChoice.
+// The UI renders the modal whenever this is non-null.
+export interface ActiveEvent {
+  tileId: TileId;
+  def: EventDef;
+  // For opposeRoll choices, the NPC's pre-rolled values are computed once
+  // when the modal opens so the player sees what they're up against. Keyed
+  // by choice id; undefined for non-opposeRoll events.
+  opposingRolls?: Record<string, number[]>;
+}
 
 export interface Tile {
   id: TileId;
@@ -126,6 +247,10 @@ export interface Tile {
   state: TileState;
   card: PhaseCard | null;
   tier: 0 | 1 | 2 | 3;
+  // Set when kind === 'event'. Drives the EventModal's narrative + choices
+  // when the player triggers the tile. Resolved choices flip the tile to
+  // 'playerFulfilled' (treated as walkable terrain afterward).
+  eventDef?: EventDef;
 }
 
 export interface Grid {
@@ -215,6 +340,10 @@ export interface HeistState {
   // Most-recent ability activation. The UI watches this for identity
   // change and plays an impact animation on the listed dice.
   lastAbilityImpact: AbilityImpactEvent | null;
+  // Active event modal state. Non-null while the player is engaged with
+  // a "?" tile's narrative panel. Pool selection / movement / fulfill
+  // actions are gated on this being null in the UI layer.
+  activeEvent: ActiveEvent | null;
 }
 
 export interface AbilityDraftOption {
@@ -235,6 +364,11 @@ export interface RunState {
   // The crew's wallet. Awarded on each successful heist (per-target);
   // spent in the between-heist draft to acquire new abilities.
   creds: number;
+  // Pool dice carried over from the most-recently-completed heist (excluding
+  // the character die, which is recreated per heist). Populated by
+  // proceedFromOutcome on a win; consumed by buildFreshHeist when the
+  // character's passive is 'keepMomentumBetweenHeists'. Empty otherwise.
+  stashedPool: Die[];
   heat: Die[];
   nodeIndex: number;
   map: MapNode[];

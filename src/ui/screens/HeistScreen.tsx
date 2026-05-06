@@ -11,6 +11,7 @@ import { HeatResolutionBanner } from '../components/HeatResolutionBanner';
 import { DieGlyph } from '../components/DieGlyph';
 import { DiceFlyOverlay, FlyingDieInstance } from '../components/DiceFlyOverlay';
 import { HeistEndOverlay } from '../components/HeistEndOverlay';
+import { EventModal } from '../components/EventModal';
 import '../heist-grid.css';
 
 const HEAT_STAGE_MS = 700;
@@ -34,6 +35,9 @@ export function HeistScreen() {
   // `reroll` is no longer wired to a button — see hidden REROLL note below.
   // Movement / fulfillment trigger it internally via the gameStore.
   const activateAbility = useGameStore((s) => s.activateAbility);
+  const openEvent = useGameStore((s) => s.openEvent);
+  const resolveEventChoice = useGameStore((s) => s.resolveEventChoice);
+  const closeEvent = useGameStore((s) => s.closeEvent);
   const proceedFromOutcome = useGameStore((s) => s.proceedFromOutcome);
 
   if (!run?.heist) return null;
@@ -148,6 +152,13 @@ export function HeistScreen() {
 
   const onTileClick = (tile: Tile) => {
     if (isOver) return;
+    // Event ("?") tile — opens a narrative modal. Resolution path runs
+    // through resolveEventChoice (not playerFulfillTile) since the cost
+    // shape is event-specific.
+    if (tile.kind === 'event' && tile.state === 'revealed' && tile.eventDef) {
+      openEvent(tile.id);
+      return;
+    }
     // Revealed-unfulfilled tile: fulfill (store auto-picks dice if none selected,
     // and also moves the player onto the tile on success).
     if (isUnfulfilledRevealed(tile)) {
@@ -552,6 +563,20 @@ export function HeistScreen() {
               </div>
             </div>
           </div>
+          <div
+            className="hg-character-passive"
+            title={character.passive.text}
+          >
+            <span className="hg-character-passive-icon" aria-hidden>
+              {character.passive.icon}
+            </span>
+            <span className="hg-character-passive-name">
+              {character.passive.name}
+            </span>
+            <span className="hg-character-passive-text">
+              {character.passive.text}
+            </span>
+          </div>
         </section>
 
         {/* Pool */}
@@ -634,6 +659,22 @@ export function HeistScreen() {
           turnsTaken={heist.turn}
           logTail={heist.log.slice(-3)}
           onProceed={proceedFromOutcome}
+        />
+      )}
+
+      {/* Event modal — opens when the player triggers a "?" tile. The
+          rest of the heist remains visible behind a darkened scrim so the
+          player can still see + select pool dice (some choices need a
+          die selection committed in the modal). */}
+      {heist.activeEvent && !isOver && (
+        <EventModal
+          active={heist.activeEvent}
+          pool={heist.pool}
+          selectedDiceIds={ui.selectedDiceIds}
+          abilities={run.abilities}
+          creds={run.creds}
+          onResolve={resolveEventChoice}
+          onClose={closeEvent}
         />
       )}
     </div>

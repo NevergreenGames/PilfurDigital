@@ -45,7 +45,7 @@ export const STEPS: TutorialStep[] = [
   {
     id: 'characterSelect.intro',
     screen: 'characterSelect',
-    text: "Pick your crew of one. Each character starts with a unique die and a signature ability. Click a character to choose.",
+    text: "Pick your crew of one. Each character starts with a unique die and an always-on passive that bends a core rule. Click a character to choose.",
     anchor: '.character-grid',
     mode: 'auto',
     shouldShow: onScreen('characterSelect'),

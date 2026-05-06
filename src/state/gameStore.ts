@@ -3,8 +3,11 @@ import {
   AbilityChargeEvent,
   AbilityDraftOption,
   AbilityImpactEvent,
+  ActiveEvent,
   CharacterAbility,
   Die,
+  EventChoice,
+  EventReward,
   GameState,
   Grid,
   HeatIntent,
@@ -20,10 +23,16 @@ import {
 import { createDie, nextDieSize, rollValue } from '../engine/dice';
 import { findSatisfyingSubset, isSubsetSatisfying } from '../engine/requirements';
 import { applyEffect } from '../engine/effects';
-import { PHASE_CARDS } from '../content/phaseCards';
 import { CHARACTERS } from '../content/characters';
-import { TARGETS, getTargetsByTier } from '../content/targets';
-import { draftedAbilityPool } from '../content/abilities';
+import { RARE_ABILITY_POOL } from '../content/events';
+import {
+  getAbilities,
+  getEvents,
+  getPhaseCards,
+  getTargets,
+  getTargetsByTier,
+} from './contentRegistry';
+import { markCharacterCompleted } from './progress';
 import { bfsReachable, generateGrid, neighbors8 } from '../engine/gridGen';
 
 const TOTAL_NODES = 5;
@@ -230,12 +239,76 @@ function addChargesFromRoll(
   return { charges, gained, events };
 }
 
+// Apply an EventReward to a working copy of the heist + run mutables.
+// Returns the new mutables plus a list of log lines to surface in the UI.
+function applyEventReward(
+  reward: EventReward | undefined,
+  pool: Die[],
+  heat: Die[],
+  creds: number,
+  abilities: CharacterAbility[],
+): {
+  pool: Die[];
+  heat: Die[];
+  creds: number;
+  abilities: CharacterAbility[];
+  log: string[];
+} {
+  let nextPool = pool;
+  let nextHeat = heat;
+  let nextCreds = creds;
+  let nextAbilities = abilities;
+  const log: string[] = [];
+  if (!reward) return { pool: nextPool, heat: nextHeat, creds: nextCreds, abilities: nextAbilities, log };
+  if (reward.creds && reward.creds !== 0) {
+    nextCreds = nextCreds + reward.creds;
+    log.push(`💰 +¢${reward.creds}.`);
+  }
+  if (reward.poolDie) {
+    nextPool = [
+      ...nextPool,
+      { ...createDie(reward.poolDie, 'stash'), value: null },
+    ];
+    log.push(`✨ Gained a d${reward.poolDie}.`);
+  }
+  if (reward.ghostDie) {
+    nextPool = [
+      ...nextPool,
+      { ...createDie(reward.ghostDie, 'ghost'), value: null },
+    ];
+    log.push(`👻 Ghost d${reward.ghostDie} grafted onto the pool.`);
+  }
+  if (reward.removeHeat && reward.removeHeat > 0) {
+    const removeN = Math.min(nextHeat.length, reward.removeHeat);
+    if (removeN > 0) {
+      nextHeat = nextHeat.slice(0, nextHeat.length - removeN);
+      log.push(`❄ −${removeN} heat.`);
+    }
+  }
+  if (reward.rareAbility) {
+    const ownedIds = new Set(nextAbilities.map((a) => a.id));
+    const candidates = RARE_ABILITY_POOL.filter((a) => !ownedIds.has(a.id));
+    if (candidates.length > 0) {
+      const picked = candidates[Math.floor(Math.random() * candidates.length)];
+      nextAbilities = [...nextAbilities, picked];
+      log.push(`✦ Acquired ${picked.name}.`);
+    } else {
+      // Already own every rare — fall back to a creds payout so the slot
+      // isn't a dud.
+      nextCreds = nextCreds + 6;
+      log.push(`✦ No rare tools to spare — +¢6 instead.`);
+    }
+  }
+  return { pool: nextPool, heat: nextHeat, creds: nextCreds, abilities: nextAbilities, log };
+}
+
 function buildAbilityDraft(
   owned: CharacterAbility[],
   creds: number,
 ): AbilityDraftOption[] {
   const ownedIds = new Set(owned.map((a) => a.id));
-  const available = draftedAbilityPool.filter((a) => !ownedIds.has(a.id));
+  const draftPool = getAbilities();
+  const available = draftPool.filter((a) => !ownedIds.has(a.id));
   const DRAFT_SIZE = 3;
 
   // Affordability-biased selection: pick the draft so the player can
@@ -265,7 +338,7 @@ function buildAbilityDraft(
   } else {
     // Fallback: exhaust available uniques, then allow duplicates from the full pool.
     const uniques = shuffle(available);
-    const filler = randomPick(draftedAbilityPool, DRAFT_SIZE - uniques.length);
+    const filler = randomPick(draftPool, DRAFT_SIZE - uniques.length);
     picks = [...uniques, ...filler];
   }
   return picks.map((a) => ({ ability: a }));
@@ -276,7 +349,7 @@ function buildFreshHeist(
   target: HeistTarget,
   nodeIndex: number,
 ): HeistState {
-  const grid = generateGrid(nodeIndex, PHASE_CARDS, TARGETS);
+  const grid = generateGrid(nodeIndex, getPhaseCards(), getTargets(), getEvents());
   // Make sure the target card's name matches the chosen target (generateGrid picks by tier).
   // We override the target tile's card to the actually-selected target so the map choice is honored.
   const targetTile = findTileAt(grid, grid.target);
@@ -295,8 +368,16 @@ function buildFreshHeist(
     ...createDie(run.characterDie, 'character', run.character.id),
     value: null,
   };
-  // Every heist starts with the character die plus a fresh d6.
-  const starterD6: Die = { ...createDie(6, 'stash'), value: null };
+  // Default starting pool: character die + a fresh d6.
+  // Veteran's CARRYOVER passive replaces the fresh d6 with whatever pool
+  // dice survived the previous heist (rerolled to null so the auto-roll
+  // on heist entry produces fresh values). Stays empty on the first heist.
+  const keepsMomentum =
+    run.character.passive.id === 'keepMomentumBetweenHeists';
+  const carriedDice: Die[] =
+    keepsMomentum && run.stashedPool.length > 0
+      ? run.stashedPool.map((d) => ({ ...d, value: null }))
+      : [{ ...createDie(6, 'stash'), value: null }];
   // Heat scales by level. Level 1 (nodeIndex 0) → 2 heat dice;
   // Level 5 (nodeIndex 4) → 6 heat dice.
   const heatCount = nodeIndex + 2;
@@ -310,7 +391,7 @@ function buildFreshHeist(
   return {
     grid: gridRevealed,
     player: grid.start,
-    pool: [charDie, starterD6],
+    pool: [charDie, ...carriedDice],
     heat,
     heatIntents: [],
     hasRolledThisTurn: false,
@@ -321,6 +402,7 @@ function buildFreshHeist(
     lastPlayerFulfill: null,
     lastChargeEvents: [],
     lastAbilityImpact: null,
+    activeEvent: null,
   };
 }
 
@@ -349,9 +431,29 @@ interface GameStore extends GameState {
   movePlayer: (tileId: TileId) => void;
   rollDice: () => void;
   playerFulfillTile: (tileId: TileId) => void;
-  reroll: () => void;
+  /**
+   * End the current turn, then roll fresh.
+   *
+   * `skipHeatRoll` — when true, heat dice retain their values from the
+   * previous roll and no fresh d6 is added to heat (Demolitionist's
+   * AFTERSHOCK passive: heat doesn't reroll on phase fulfillment).
+   */
+  reroll: (opts?: { skipHeatRoll?: boolean }) => void;
   endTurn: () => void;
   activateAbility: (abilityId: string) => void;
+
+  /** Open the event modal for an adjacent revealed "?" tile. No-op if the
+   * tile isn't an event or isn't adjacent. */
+  openEvent: (tileId: TileId) => void;
+  /** Apply the chosen branch of the active event. `params.dieIds` carries
+   * the player's pool selection (for payDie / opposeRoll / thresholdRoll);
+   * `params.abilityId` is the ability being sacrificed for payAbility. */
+  resolveEventChoice: (
+    choiceId: string,
+    params?: { dieIds?: string[]; abilityId?: string },
+  ) => void;
+  /** Dismiss the event modal without consuming the tile. */
+  closeEvent: () => void;
 
   chooseDraft: (optionIndex: number) => void;
   skipDraft: () => void;
@@ -373,9 +475,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const run: RunState = {
       character,
       characterDie: character.startingDie,
-      abilities: [character.ability],
+      // Characters no longer ship with a signature ability — their unique
+      // edge is the always-on passive. Abilities are acquired exclusively
+      // through the between-heist draft.
+      abilities: [],
       abilityCharges: {},
       creds: 0,
+      stashedPool: [],
       heat: [],
       nodeIndex: 0,
       map: buildMap(),
@@ -591,8 +697,17 @@ export const useGameStore = create<GameStore>((set, get) => ({
     // Consume selected dice — except character die, which returns to pool unrolled.
     const selectedIds = new Set(selected.map((d) => d.id));
     const charSelected = selected.filter((d) => d.source === 'character');
+    // Ghost dice burn on every fulfillment, whether or not they were used.
+    // Count the survivors (ghosts left in the pool that didn't make it
+    // into `selected`) so we can log how many faded — and so the player
+    // sees their power surge expire visibly.
+    const ghostsInPool = heist.pool.filter((d) => d.source === 'ghost');
+    const burnedGhostCount = ghostsInPool.filter(
+      (d) => !selectedIds.has(d.id),
+    ).length;
     const remainingPool = heist.pool
       .filter((d) => !selectedIds.has(d.id))
+      .filter((d) => d.source !== 'ghost')
       .concat(charSelected.map((d) => ({ ...d, value: null })));
 
     // Push tile momentum dice to pool unrolled.
@@ -603,6 +718,40 @@ export const useGameStore = create<GameStore>((set, get) => ({
     let pool = [...remainingPool, ...gained];
     let heat = heist.heat;
     const log = [...heist.log, `✔ ${tileCard.name} fulfilled.`];
+    if (burnedGhostCount > 0) {
+      log.push(
+        `👻 ${burnedGhostCount} ghost ${burnedGhostCount === 1 ? 'die' : 'dice'} faded.`,
+      );
+    }
+
+    // Hacker's INSIDE TRACK passive: every phase tile fulfilled adds a
+    // fresh d6 to the pool (unrolled — gets rolled by the chained reroll).
+    // Skipped on target tiles since the heist ends and there's no further
+    // roll to consume the die.
+    const isPhaseFulfill = tile.kind !== 'target';
+    const grantsBonusD6 =
+      isPhaseFulfill &&
+      run.character.passive.id === 'bonusD6OnPhaseFulfill';
+    if (grantsBonusD6) {
+      pool = [...pool, { ...createDie(6, 'stash'), value: null }];
+      log.push(`💻 Inside track: +d6 to pool.`);
+    }
+
+    // Phantom's EVERY DOOR TWICE passive: every phase fulfillment grafts
+    // two ghost d4s onto the pool. They roll with the chained reroll and
+    // then evaporate on the next fulfillment regardless of use — short
+    // surge, then fade.
+    const grantsGhostDice =
+      isPhaseFulfill &&
+      run.character.passive.id === 'ghostDiceOnPhaseFulfill';
+    if (grantsGhostDice) {
+      pool = [
+        ...pool,
+        { ...createDie(4, 'ghost'), value: null },
+        { ...createDie(4, 'ghost'), value: null },
+      ];
+      log.push(`👻 Every door twice: +2 ghost d4s.`);
+    }
 
     // Cache payout — only awarded when the PLAYER fulfills the tile
     // (heat-fulfillment never pays). Banked into run.creds, spent later
@@ -706,14 +855,23 @@ export const useGameStore = create<GameStore>((set, get) => ({
     // Target tiles are the exception: a target fulfill is the WIN, the
     // run is over, no reroll needed.
     if (tile.kind !== 'target') {
-      get().reroll();
+      // Demolitionist's AFTERSHOCK: heat doesn't reroll on phase fulfill,
+      // only on plain stepping moves (handled by movePlayer's reroll call).
+      const skipHeatRoll =
+        run.character.passive.id === 'noHeatRerollOnPhaseFulfill';
+      get().reroll({ skipHeatRoll });
     }
   },
 
   // Reroll == End Turn + Roll. Resolves all pending heat intents (locking
   // tiles, generating new heat from gained dice), advances the turn, then
-  // rolls everything fresh and grants the +1 d6 bonus to pool and heat.
-  reroll: () => {
+  // rolls the pool fresh and adds a fresh d6 to heat (heat goes up by +1
+  // d6 every roll). Pool gets no automatic bonus die — that lever is now
+  // owned by the Hacker's INSIDE TRACK passive (added on phase fulfill).
+  // `skipHeatRoll` honors the Demolitionist's AFTERSHOCK: when set, heat
+  // is left untouched (values frozen, no new d6).
+  reroll: (opts) => {
+    const skipHeatRoll = opts?.skipHeatRoll ?? false;
     const state = get();
     const run = state.run;
     if (!run?.heist) return;
@@ -756,17 +914,25 @@ export const useGameStore = create<GameStore>((set, get) => ({
       return;
     }
 
-    // Step 2 — Fresh roll (with the +1 d6 reroll bonus to each pool).
-    let pool = rollAll(heist.pool);
-    let heat = rollAll(resolved.heat);
-    const newPoolDie: Die = { ...createDie(6, 'phase'), value: rollValue(6) };
-    const newHeatDie: Die = { ...createDie(6, 'heat'), value: rollValue(6) };
-    pool = [...pool, newPoolDie];
-    heat = [...heat, newHeatDie];
+    // Step 2 — Fresh roll. Pool always rerolls. Heat rerolls and gains a
+    // fresh d6 unless the active passive suppresses it (Demolitionist).
+    const pool = rollAll(heist.pool);
+    let heat: Die[];
+    if (skipHeatRoll) {
+      // Heat values stay exactly as they were going into the end-of-turn
+      // resolution — frozen, no new die added.
+      heat = resolved.heat;
+    } else {
+      heat = rollAll(resolved.heat);
+      const newHeatDie: Die = { ...createDie(6, 'heat'), value: rollValue(6) };
+      heat = [...heat, newHeatDie];
+    }
 
     const log = [
       ...resolved.log,
-      `Reroll: rolled ${pool.length} pool + ${heat.length} heat dice (+1 d6 each).`,
+      skipHeatRoll
+        ? `Reroll: rolled ${pool.length} pool dice. Heat held steady.`
+        : `Reroll: rolled ${pool.length} pool + ${heat.length} heat dice (+1 d6 to heat).`,
     ];
     const rolledSnapshot = heat
       .filter((d) => d.value !== null)
@@ -976,6 +1142,234 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (outcome) postOutcome(outcome);
   },
 
+  openEvent: (tileId) => {
+    const state = get();
+    const run = state.run;
+    if (!run?.heist) return;
+    const heist = run.heist;
+    if (heist.outcome) return;
+    if (heist.activeEvent) return;
+    const tile = findTileById(heist.grid, tileId);
+    if (!tile || tile.kind !== 'event' || !tile.eventDef) return;
+    if (tile.state !== 'revealed') return;
+    if (!isAdjacent(heist.player, tile.pos)) {
+      set({ ui: { ...state.ui, message: 'Tile is not adjacent.' } });
+      return;
+    }
+    // Pre-roll any opposing dice on opposeRoll choices so the player sees
+    // exactly what they're up against before committing.
+    const opposingRolls: Record<string, number[]> = {};
+    for (const choice of tile.eventDef.choices) {
+      if (choice.kind === 'opposeRoll' && choice.opposingDice) {
+        opposingRolls[choice.id] = choice.opposingDice.map((s) => rollValue(s));
+      }
+    }
+    const activeEvent: ActiveEvent = {
+      tileId: tile.id,
+      def: tile.eventDef,
+      opposingRolls: Object.keys(opposingRolls).length > 0 ? opposingRolls : undefined,
+    };
+    set({
+      run: {
+        ...run,
+        heist: { ...heist, activeEvent },
+      },
+      ui: { ...state.ui, selectedDiceIds: [], message: null },
+    });
+  },
+
+  closeEvent: () => {
+    const state = get();
+    const run = state.run;
+    if (!run?.heist) return;
+    if (!run.heist.activeEvent) return;
+    set({
+      run: {
+        ...run,
+        heist: { ...run.heist, activeEvent: null },
+      },
+      ui: { ...state.ui, selectedDiceIds: [], message: null },
+    });
+  },
+
+  resolveEventChoice: (choiceId, params) => {
+    const state = get();
+    const run = state.run;
+    if (!run?.heist) return;
+    const heist = run.heist;
+    if (heist.outcome) return;
+    const active = heist.activeEvent;
+    if (!active) return;
+    const choice: EventChoice | undefined = active.def.choices.find(
+      (c) => c.id === choiceId,
+    );
+    if (!choice) return;
+
+    // Walk-away — pure dismissal, tile remains intact, no reroll.
+    if (choice.kind === 'walkAway') {
+      set({
+        run: {
+          ...run,
+          heist: {
+            ...heist,
+            activeEvent: null,
+            log: [...heist.log, `Walked away from ${active.def.title}.`],
+          },
+        },
+        ui: { ...state.ui, selectedDiceIds: [], message: null },
+      });
+      return;
+    }
+
+    // Working copies — choice cost mutates these before reward.
+    let pool = [...heist.pool];
+    let heat = heist.heat;
+    let creds = run.creds;
+    let abilities = run.abilities;
+    let abilityCharges = run.abilityCharges;
+    let outcomeWinSide: 'win' | 'lose' = 'win';
+    const log: string[] = [];
+
+    switch (choice.kind) {
+      case 'payCreds': {
+        const cost = choice.creds ?? 0;
+        if (creds < cost) {
+          set({ ui: { ...state.ui, message: 'Not enough creds.' } });
+          return;
+        }
+        creds = creds - cost;
+        log.push(`Paid ¢${cost}.`);
+        break;
+      }
+      case 'payDie': {
+        const dieId = params?.dieIds?.[0];
+        const die = dieId ? pool.find((d) => d.id === dieId) : undefined;
+        if (!die || (choice.dieSize !== undefined && die.size !== choice.dieSize)) {
+          set({ ui: { ...state.ui, message: `Pick a d${choice.dieSize ?? '?'} from your pool.` } });
+          return;
+        }
+        pool = pool.filter((d) => d.id !== dieId);
+        log.push(`Spent a d${die.size}.`);
+        break;
+      }
+      case 'payAbility': {
+        const abilityId = params?.abilityId;
+        const ability = abilityId ? abilities.find((a) => a.id === abilityId) : undefined;
+        if (!ability) {
+          set({ ui: { ...state.ui, message: 'Pick an ability to sacrifice.' } });
+          return;
+        }
+        abilities = abilities.filter((a) => a.id !== abilityId);
+        // Drop any accumulated charges for the sacrificed ability.
+        if (abilityCharges[abilityId!] !== undefined) {
+          const next = { ...abilityCharges };
+          delete next[abilityId!];
+          abilityCharges = next;
+        }
+        log.push(`Traded away ${ability.name}.`);
+        break;
+      }
+      case 'opposeRoll': {
+        const dieIds = params?.dieIds ?? [];
+        const selected = pool.filter((d) => dieIds.includes(d.id) && d.value !== null);
+        if (selected.length === 0) {
+          set({ ui: { ...state.ui, message: 'Select dice to roll against the lock.' } });
+          return;
+        }
+        const playerSum = selected.reduce((acc, d) => acc + (d.value ?? 0), 0);
+        const opposing = active.opposingRolls?.[choiceId] ?? [];
+        const oppSum = opposing.reduce((acc, v) => acc + v, 0);
+        outcomeWinSide = playerSum >= oppSum ? 'win' : 'lose';
+        log.push(
+          `Roll: ${playerSum} vs ${oppSum} — ${outcomeWinSide === 'win' ? 'win.' : 'lose.'}`,
+        );
+        break;
+      }
+      case 'thresholdRoll': {
+        const dieId = params?.dieIds?.[0];
+        const die = dieId ? pool.find((d) => d.id === dieId) : undefined;
+        const threshold = choice.threshold ?? 0;
+        if (!die || die.value === null) {
+          set({ ui: { ...state.ui, message: 'Pick a rolled die from your pool.' } });
+          return;
+        }
+        if (die.value < threshold) {
+          set({ ui: { ...state.ui, message: `That die isn't high enough (need ≥ ${threshold}).` } });
+          return;
+        }
+        // The chosen die is consumed regardless of reward.
+        pool = pool.filter((d) => d.id !== dieId);
+        log.push(`Burnt a d${die.size} showing ${die.value}.`);
+        break;
+      }
+      default:
+        return;
+    }
+
+    // Apply outcome (reward on win / non-roll choices, penalty on a lost roll).
+    const useReward = outcomeWinSide === 'win';
+    const applied = applyEventReward(
+      useReward ? choice.reward : choice.penalty,
+      pool,
+      heat,
+      creds,
+      abilities,
+    );
+    pool = applied.pool;
+    heat = applied.heat;
+    creds = applied.creds;
+    abilities = applied.abilities;
+    log.push(...applied.log);
+
+    // Mark the tile consumed (treated as walkable terrain afterward).
+    const tile = findTileById(heist.grid, active.tileId);
+    if (!tile) return;
+    const grid = setTile(heist.grid, tile.id, { state: 'playerFulfilled' });
+
+    // Player walks onto the consumed tile and reveals fog around it.
+    const newPlayer = tile.pos;
+    const revealed = revealFogAround(grid, newPlayer);
+    const fullLog = [
+      ...heist.log,
+      `★ ${active.def.title}: ${choice.label}.`,
+      ...log,
+      `Moved to (${newPlayer.row}, ${newPlayer.col}).`,
+    ];
+
+    let outcome: HeistState['outcome'] = heist.outcome;
+    if (!outcome) outcome = detectOutcome(revealed, newPlayer);
+
+    set({
+      run: {
+        ...run,
+        creds,
+        abilities,
+        abilityCharges,
+        heist: {
+          ...heist,
+          grid: revealed,
+          player: newPlayer,
+          pool,
+          heat,
+          activeEvent: null,
+          log: fullLog,
+          outcome: outcome ?? null,
+        },
+      },
+      ui: { ...state.ui, selectedDiceIds: [], message: null },
+    });
+    if (outcome) {
+      postOutcome(outcome);
+      return;
+    }
+    // Resolving an event ends the turn (same as fulfilling a tile or
+    // stepping). Demolitionist's AFTERSHOCK applies because the player did
+    // not "step onto" a previously-cleared tile — they consumed a new one.
+    const skipHeatRoll =
+      run.character.passive.id === 'noHeatRerollOnPhaseFulfill';
+    get().reroll({ skipHeatRoll });
+  },
+
   chooseDraft: (optionIndex) => {
     const run = get().run;
     if (!run?.draft) return;
@@ -1031,16 +1425,29 @@ export const useGameStore = create<GameStore>((set, get) => ({
       : undefined;
     const reward = chosenTarget?.credsReward ?? 0;
     const credsAfter = run.creds + reward;
+    // Veteran's CARRYOVER: snapshot the surviving pool (minus the
+    // character die, which is regenerated next heist) for buildFreshHeist
+    // to pick up. Stored on the run regardless of character — non-Veterans
+    // simply ignore it. Strip values so the next heist's auto-roll
+    // produces fresh ones.
+    const stashedPool: Die[] = run.heist
+      ? run.heist.pool
+          .filter((d) => d.source !== 'character' && d.source !== 'ghost')
+          .map((d) => ({ ...d, value: null }))
+      : run.stashedPool;
     const isFinalNode = run.nodeIndex === TOTAL_NODES - 1;
     if (isFinalNode) {
-      set({ screen: 'gameOver', run: { ...run, creds: credsAfter } });
+      // Meta-progression: finishing the last node with this character
+      // unlocks the next one in the roster on the character-select screen.
+      markCharacterCompleted(run.character.id);
+      set({ screen: 'gameOver', run: { ...run, creds: credsAfter, stashedPool } });
       return;
     }
     // Won a non-final node — go to draft for the next job.
     const draft = buildAbilityDraft(run.abilities, credsAfter);
     set({
       screen: 'draft',
-      run: { ...run, creds: credsAfter, draft, heist: null },
+      run: { ...run, creds: credsAfter, stashedPool, draft, heist: null },
     });
   },
 }));

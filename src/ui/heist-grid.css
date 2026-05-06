@@ -826,6 +826,77 @@
   color: var(--character);
 }
 
+/* Event ("?") tiles — magenta accent at every state so the player can
+   spot them through fog. Mirrors the cache treatment but in a different
+   hue so the two side-quest types read distinctly on the board. */
+.hg-tile--event {
+  border-color: #c66cff !important;
+  box-shadow: 0 0 12px rgba(198, 108, 255, 0.45);
+}
+.hg-tile--event.hg-tile--hidden {
+  background: linear-gradient(
+    135deg,
+    rgba(198, 108, 255, 0.18) 0%,
+    rgba(50, 30, 70, 0.85) 100%
+  );
+}
+.hg-tile-fog--event-peek {
+  font-size: 56px;
+  color: #c66cff;
+  text-shadow: 0 0 14px rgba(198, 108, 255, 0.85);
+  font-weight: bold;
+}
+.hg-tile-event-glyph {
+  font-size: 48px;
+  font-weight: bold;
+  color: #c66cff;
+  line-height: 1;
+  text-shadow: 0 0 10px rgba(198, 108, 255, 0.85);
+  letter-spacing: -2px;
+  animation: hg-event-pulse 1.6s ease-in-out infinite;
+}
+@keyframes hg-event-pulse {
+  0%, 100% {
+    text-shadow: 0 0 8px rgba(198, 108, 255, 0.5);
+    transform: scale(1);
+  }
+  50% {
+    text-shadow: 0 0 18px rgba(198, 108, 255, 1);
+    transform: scale(1.06);
+  }
+}
+.hg-character-passive {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 8px;
+  row-gap: 2px;
+  padding: 8px 10px;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--phase);
+  border-radius: var(--radius);
+  font-size: 11px;
+  line-height: 1.35;
+}
+.hg-character-passive-icon {
+  grid-row: 1 / span 2;
+  font-size: 22px;
+  line-height: 1;
+  filter: drop-shadow(0 0 6px rgba(138, 178, 255, 0.55));
+  align-self: center;
+}
+.hg-character-passive-name {
+  font-weight: bold;
+  letter-spacing: 1px;
+  color: var(--phase);
+  font-size: 11px;
+}
+.hg-character-passive-text {
+  color: var(--muted);
+  font-size: 11px;
+}
+
 /* Dice pool / heat */
 .hg-dice-row {
   display: flex;
@@ -1523,4 +1594,306 @@
   letter-spacing: 1px;
   padding-top: 4px;
   border-top: 1px dashed var(--danger);
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   Event modal — narrative pop-up for "?" tiles. Sits over a darkened
+   scrim that doesn't fully blank the heist screen: the pool / heat /
+   abilities sidebar must remain visible so the player can pick dice
+   for opposeRoll / thresholdRoll / payDie choices.
+   ────────────────────────────────────────────────────────────────── */
+
+.event-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 6, 16, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 80;
+  padding: 24px;
+  pointer-events: none;
+}
+.event-modal {
+  pointer-events: auto;
+  width: min(640px, 90vw);
+  max-height: 80vh;
+  overflow-y: auto;
+  background: linear-gradient(180deg, #1a0e2c 0%, #0c0817 100%);
+  border: 1px solid #c66cff;
+  border-radius: var(--radius);
+  box-shadow:
+    0 0 0 1px rgba(198, 108, 255, 0.2),
+    0 0 36px rgba(198, 108, 255, 0.35),
+    inset 0 0 18px rgba(198, 108, 255, 0.06);
+  padding: 18px 20px 22px;
+  position: relative;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  animation: event-modal-in 220ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+@keyframes event-modal-in {
+  from {
+    transform: translateY(8px) scale(0.98);
+    opacity: 0;
+    filter: blur(2px);
+  }
+  to {
+    transform: none;
+    opacity: 1;
+    filter: none;
+  }
+}
+.event-modal-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.event-modal-tag {
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: #c66cff;
+  opacity: 0.7;
+  text-transform: uppercase;
+}
+.event-modal-title {
+  font-size: 22px;
+  letter-spacing: 3px;
+  color: #f0d8ff;
+  margin: 0;
+  flex: 1;
+  text-shadow: 0 0 10px rgba(198, 108, 255, 0.5);
+}
+.event-modal-close {
+  background: transparent;
+  border: 1px solid rgba(198, 108, 255, 0.4);
+  color: rgba(240, 216, 255, 0.7);
+  border-radius: var(--radius);
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+.event-modal-close:hover {
+  border-color: #c66cff;
+  color: #f0d8ff;
+}
+.event-modal-flavor {
+  margin: 6px 0 18px;
+  color: #d8c4ec;
+  font-size: 14px;
+  line-height: 1.55;
+  letter-spacing: 0.5px;
+  min-height: 22px;
+}
+.event-choice-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.event-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.event-choice-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.event-choice-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  background: rgba(198, 108, 255, 0.06);
+  border: 1px solid rgba(198, 108, 255, 0.4);
+  border-radius: var(--radius);
+  color: #f0d8ff;
+  font-family: inherit;
+  font-size: 13px;
+  letter-spacing: 1.5px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+.event-choice-btn:hover:not(:disabled) {
+  background: rgba(198, 108, 255, 0.18);
+  border-color: #c66cff;
+  box-shadow: 0 0 14px rgba(198, 108, 255, 0.4);
+}
+.event-choice-btn:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+.event-choice--blocked .event-choice-btn {
+  border-color: rgba(255, 138, 160, 0.45);
+}
+.event-choice-label {
+  text-align: left;
+}
+.event-choice-chips {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.event-chip {
+  font-size: 11px;
+  letter-spacing: 1px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(0, 0, 0, 0.35);
+  font-weight: bold;
+}
+.event-chip--cost {
+  color: #ff8aa0;
+  border-color: rgba(255, 138, 160, 0.4);
+}
+.event-chip--reward {
+  color: #b6e07a;
+  border-color: rgba(182, 224, 122, 0.45);
+}
+.event-choice-reason {
+  color: var(--muted);
+  font-size: 11px;
+  font-style: italic;
+  letter-spacing: 0.5px;
+}
+.event-choice-hint {
+  color: rgba(216, 196, 236, 0.75);
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  padding: 2px 4px 4px 14px;
+  border-left: 2px dashed rgba(198, 108, 255, 0.4);
+  margin-left: 4px;
+}
+.event-choice-roll {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.32);
+  border: 1px solid rgba(198, 108, 255, 0.25);
+  border-radius: var(--radius);
+  margin-left: 4px;
+}
+.event-roll-label {
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  color: rgba(240, 216, 255, 0.6);
+  text-transform: uppercase;
+}
+.event-roll-dice {
+  display: inline-flex;
+  gap: 6px;
+}
+.event-roll-die {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #ff8aa0;
+}
+.event-roll-value {
+  position: absolute;
+  font-size: 12px;
+  font-weight: bold;
+  color: #fff;
+  text-shadow: 0 0 4px rgba(0, 0, 0, 0.8);
+}
+.event-roll-sum {
+  font-weight: bold;
+  font-size: 13px;
+  color: #f0d8ff;
+}
+.event-roll-divider {
+  color: rgba(216, 196, 236, 0.5);
+  font-size: 11px;
+  letter-spacing: 2px;
+}
+.event-ability-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: 4px;
+}
+.event-ability-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: rgba(0, 0, 0, 0.32);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: var(--radius);
+  color: var(--fg);
+  font-family: inherit;
+  font-size: 11px;
+  letter-spacing: 1px;
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+.event-ability-pick:hover {
+  border-color: #c66cff;
+  background: rgba(198, 108, 255, 0.16);
+}
+.event-ability-pick--on {
+  border-color: #ff8aa0;
+  background: rgba(255, 138, 160, 0.16);
+  color: #ffd2dc;
+  box-shadow: 0 0 10px rgba(255, 138, 160, 0.3);
+}
+.event-ability-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+.event-ability-empty {
+  font-size: 11px;
+  color: var(--muted);
+  font-style: italic;
+}
+
+/* Glitch typewriter — used in event titles + flavor. Each word fades in
+   after a brief scrambled flicker. The .glitch-word--resolved variant
+   removes the cyan/magenta split so settled text reads cleanly. */
+.glitch-typewriter {
+  display: inline;
+}
+.glitch-word {
+  display: inline-block;
+  color: #f0d8ff;
+  text-shadow:
+    1px 0 #c66cff,
+    -1px 0 #6cffe0;
+  animation: glitch-flicker 220ms steps(2, end);
+}
+.glitch-word--resolved {
+  text-shadow: none;
+  animation: none;
+}
+@keyframes glitch-flicker {
+  0% {
+    transform: translate(-1px, 0);
+    opacity: 0.4;
+  }
+  35% {
+    transform: translate(1px, 1px);
+    opacity: 0.85;
+  }
+  70% {
+    transform: translate(0, -1px);
+    opacity: 0.95;
+  }
+  100% {
+    transform: none;
+    opacity: 1;
+  }
 }
