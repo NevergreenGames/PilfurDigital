@@ -1,0 +1,312 @@
+/* Persona 5–inspired angular shape language — prototype on the
+ * character-select grid only. If the foundation feels right, the
+ * tokens hoist to globals and the rules expand to rig select, modals,
+ * buttons, and tile chrome.
+ *
+ * Strategy: clip-path can't compose with box-shadow blur, so depth
+ * comes from a duplicate offset parallelogram on the wrapper's
+ * ::before. An unclipped frame holds the offset shadow; the inner
+ * button carries the clip-path foreground. The .stagger-item itself
+ * stays unclipped so its slam-in transform doesn't fight the clip.
+ *
+ *   .stagger-item                  ← entrance motion
+ *     .character-card-frame        ← unclipped; ::before is offset shadow
+ *       button.character-card      ← clip-path parallelogram + content
+ */
+
+:root {
+  /* Geometry — slant in pixels (not %) so cards of different widths
+     share the same diagonal feel. Bump for a more aggressive lean. */
+  --p5-slant: 18px;
+  --p5-clip: polygon(
+    var(--p5-slant) 0,
+    100% 0,
+    calc(100% - var(--p5-slant)) 100%,
+    0 100%
+  );
+
+  /* Layered depth — the offset parallelogram peeks out behind the
+     foreground. Larger offset on hover/select reads as the card lifting
+     toward the cursor. */
+  --p5-depth-x: 8px;
+  --p5-depth-y: 6px;
+  --p5-depth-x-hover: 12px;
+  --p5-depth-y-hover: 9px;
+  --p5-depth-x-selected: 14px;
+  --p5-depth-y-selected: 10px;
+
+  --p5-depth: #000;
+  --p5-depth-selected: var(--accent);
+
+  /* Surface tint */
+  --p5-hatch: rgba(0, 0, 0, 0.22);
+  --p5-hatch-locked: rgba(0, 0, 0, 0.10);
+
+  /* Outline */
+  --p5-outline: #000;
+  --p5-outline-w: 2px;
+
+  /* Chromatic aberration — same RGB-split palette GlitchButton/title use,
+     reapplied via drop-shadow so it traces the parallelogram silhouette
+     instead of getting eaten by clip-path the way box-shadow does. */
+  --p5-chroma-r: rgba(247, 118, 142, 0.65);
+  --p5-chroma-c: rgba(108, 255, 224, 0.65);
+  --p5-chroma-v: rgba(198, 108, 255, 0.55);
+
+  /* Selection glow — amber halo around the active card. drop-shadow
+     respects the clip, so this reads as a soft amber outline. */
+  --p5-glow: rgba(240, 189, 114, 0.6);
+  --p5-glow-soft: rgba(240, 189, 114, 0.35);
+
+  /* Motion */
+  --p5-slam-ms: 420ms;
+  --p5-punch-ms: 240ms;
+}
+
+/* ── Character select prototype ─────────────────────────────────── */
+
+/* Cards protrude past their grid cell on the slant; pad the grid so
+   the leftmost slant doesn't get clipped by a parent overflow. */
+.character-grid {
+  padding: 4px var(--p5-slant);
+}
+
+/* Slam-in entrance replaces stagger-pop's soft fade — scoped to this
+   grid so .stagger-item elsewhere keeps the gentler cadence. */
+.character-grid > .stagger-item {
+  animation: p5-slam-in var(--p5-slam-ms) cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes p5-slam-in {
+  0%   { opacity: 0; transform: translateX(-110px) skewX(8deg); filter: blur(2px); }
+  55%  { opacity: 1; transform: translateX(10px) skewX(-2deg);  filter: blur(0); }
+  80%  { transform: translateX(-3px) skewX(0); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+
+body[data-reduce-motion="true"] .character-grid > .stagger-item {
+  animation: stagger-pop 200ms ease-out both;
+}
+
+/* Frame is the unclipped wrapper that hosts the offset shadow.
+   isolation creates a stacking context so ::before sits behind the
+   button without z-index ripple effects on the rest of the page.
+
+   The frame ALSO carries the glow + chromatic-aberration filters —
+   per CSS spec, filter is applied before clip-path, so a drop-shadow
+   on the clipped button gets chopped off at the parallelogram edge.
+   Putting filter here (on the unclipped parent) lets the shadow
+   extend past the silhouette into the surrounding space, which is
+   what reads as a halo / RGB split around the whole card. */
+.character-grid > .stagger-item > .character-card-frame {
+  position: relative;
+  flex: 1 1 auto;
+  display: flex;
+  isolation: isolate;
+  transition: filter 200ms ease;
+}
+
+.character-card-frame::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--p5-depth);
+  clip-path: var(--p5-clip);
+  transform: translate(var(--p5-depth-x), var(--p5-depth-y));
+  transition:
+    transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 220ms;
+  z-index: -1;
+}
+
+/* :has() lets the frame react to the button's state without a wiring
+   prop. All target browsers (Chrome ≥105, Safari ≥15.4, FF ≥121)
+   support it; we can lift to React props later if support shrinks. */
+.character-card-frame:has(.character-card:hover:not(:disabled))::before {
+  transform: translate(var(--p5-depth-x-hover), var(--p5-depth-y-hover));
+}
+
+.character-card-frame:has(.character-card.select-card--selected)::before {
+  background: var(--p5-depth-selected);
+  animation: p5-depth-throb 1.8s ease-in-out infinite;
+}
+
+@keyframes p5-depth-throb {
+  0%, 100% { transform: translate(var(--p5-depth-x-selected), var(--p5-depth-y-selected)); }
+  50%      { transform: translate(calc(var(--p5-depth-x-selected) + 3px), calc(var(--p5-depth-y-selected) + 2px)); }
+}
+
+body[data-reduce-motion="true"] .character-card-frame:has(.character-card.select-card--selected)::before {
+  animation: none;
+  transform: translate(var(--p5-depth-x-selected), var(--p5-depth-y-selected));
+}
+
+/* Locked: drained depth, no hover shift. */
+.character-grid > .stagger-item:has(.character-card--locked) > .character-card-frame::before {
+  background: rgba(0, 0, 0, 0.35);
+  transform: translate(4px, 3px);
+}
+
+/* Card foreground — parallelogram clip + heavy outline + cross-hatch.
+   Selectors below intentionally outspecify globals.css's .select-card
+   hover/active/selected so the chromatic-aberration vocabulary doesn't
+   bleed into the angular look. */
+.character-grid > .stagger-item > .character-card-frame > .character-card {
+  border: 0;
+  border-radius: 0;
+  clip-path: var(--p5-clip);
+  /* Outline traces the polygon via inset shadow; doubled for sub-pixel
+     punch on retina. */
+  box-shadow:
+    inset 0 0 0 var(--p5-outline-w) var(--p5-outline),
+    inset 0 0 0 calc(var(--p5-outline-w) + 1px) rgba(0, 0, 0, 0.4);
+  background:
+    repeating-linear-gradient(45deg, transparent 0 9px, var(--p5-hatch) 9px 10px),
+    var(--bg-2);
+  padding: 18px calc(16px + var(--p5-slant));
+  position: relative;
+  transform: none;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Hover: chromatic drop-shadow on the FRAME (so it escapes the clip)
+   plus the existing RGB-split text-shadow restored on inner text. The
+   depth-shadow shift on the frame::before stays as the layout cue. */
+.character-grid > .stagger-item > .character-card-frame:has(.character-card:hover:not(:disabled)) {
+  filter:
+    drop-shadow(2px 0 0 var(--p5-chroma-r))
+    drop-shadow(-2px 0 0 var(--p5-chroma-c));
+}
+.character-grid > .stagger-item > .character-card-frame > .character-card:hover:not(:disabled) {
+  box-shadow:
+    inset 0 0 0 var(--p5-outline-w) var(--p5-outline),
+    inset 0 0 0 calc(var(--p5-outline-w) + 1px) rgba(0, 0, 0, 0.4);
+  transform: none;
+}
+.character-grid > .stagger-item > .character-card-frame > .character-card:hover:not(:disabled) :is(
+  .character-name,
+  .character-flavor,
+  .ability-name,
+  .ability-effect,
+  .ability-flavor,
+  .character-locked-hint
+) {
+  text-shadow:
+    1px 0 0 var(--p5-chroma-r),
+    -1px 0 0 var(--p5-chroma-c);
+}
+
+/* Click: chromatic shock burst on the frame layered with the scale
+   punch on the button. The shock filter takes over from the resting
+   hover-chromatic for ~240ms, then transition: filter eases back. */
+.character-grid > .stagger-item > .character-card-frame:has(.character-card:active:not(:disabled)) {
+  animation: p5-shock var(--p5-punch-ms) cubic-bezier(0.22, 1, 0.36, 1);
+}
+.character-grid > .stagger-item > .character-card-frame > .character-card:active:not(:disabled) {
+  animation: p5-punch var(--p5-punch-ms) cubic-bezier(0.22, 1, 0.36, 1);
+  box-shadow:
+    inset 0 0 0 var(--p5-outline-w) var(--p5-outline),
+    inset 0 0 0 calc(var(--p5-outline-w) + 1px) rgba(0, 0, 0, 0.4);
+}
+
+@keyframes p5-punch {
+  0%   { transform: scale(1); }
+  30%  { transform: scale(0.96); }
+  60%  { transform: scale(1.025); }
+  100% { transform: scale(1); }
+}
+
+@keyframes p5-shock {
+  0% {
+    filter:
+      drop-shadow(5px 0 0 var(--p5-chroma-r))
+      drop-shadow(-5px 0 0 var(--p5-chroma-c))
+      drop-shadow(0 0 0 var(--p5-chroma-v));
+  }
+  60% {
+    filter:
+      drop-shadow(3px 0 0 var(--p5-chroma-r))
+      drop-shadow(-3px 0 0 var(--p5-chroma-c))
+      drop-shadow(0 0 18px var(--p5-chroma-v));
+  }
+  100% {
+    filter:
+      drop-shadow(2px 0 0 var(--p5-chroma-r))
+      drop-shadow(-2px 0 0 var(--p5-chroma-c));
+  }
+}
+
+body[data-reduce-motion="true"] .character-grid > .stagger-item > .character-card-frame:has(.character-card:active:not(:disabled)) {
+  animation: none;
+}
+body[data-reduce-motion="true"] .character-grid > .stagger-item > .character-card-frame > .character-card:active:not(:disabled) {
+  animation: none;
+}
+
+/* Selected: amber glow halo via drop-shadow on the FRAME — stacks with
+   the depth-throb on the frame::before to make the active card feel
+   energized without strobing the foreground text. */
+.character-grid > .stagger-item > .character-card-frame:has(.character-card.select-card--selected) {
+  animation: p5-glow-pulse 2.4s ease-in-out infinite;
+}
+.character-grid > .stagger-item > .character-card-frame > .character-card.select-card--selected {
+  box-shadow:
+    inset 0 0 0 var(--p5-outline-w) var(--p5-outline),
+    inset 0 0 0 calc(var(--p5-outline-w) + 1px) rgba(0, 0, 0, 0.4);
+  border-color: transparent;
+  transform: none;
+}
+
+@keyframes p5-glow-pulse {
+  0%, 100% {
+    filter:
+      drop-shadow(0 0 10px var(--p5-glow-soft))
+      drop-shadow(0 0 4px var(--p5-glow));
+  }
+  50% {
+    filter:
+      drop-shadow(0 0 18px var(--p5-glow))
+      drop-shadow(0 0 6px var(--p5-glow));
+  }
+}
+
+body[data-reduce-motion="true"] .character-grid > .stagger-item > .character-card-frame:has(.character-card.select-card--selected) {
+  animation: none;
+  filter: drop-shadow(0 0 10px var(--p5-glow-soft));
+}
+
+/* Selected + hovered: stack amber glow with the chromatic split. The
+   selected glow-pulse animation gives way to a static stacked filter
+   so the chroma colors don't fight the amber rhythm. */
+.character-grid > .stagger-item > .character-card-frame:has(.character-card.select-card--selected:hover:not(:disabled)) {
+  animation: none;
+  filter:
+    drop-shadow(0 0 14px var(--p5-glow-soft))
+    drop-shadow(2px 0 0 var(--p5-chroma-r))
+    drop-shadow(-2px 0 0 var(--p5-chroma-c));
+}
+
+/* Locked card surface: thin out the hatch so it reads as drained. The
+   .character-card--locked rule in globals.css still dims via opacity +
+   grayscale on top of this. */
+.character-grid > .stagger-item > .character-card-frame > .character-card--locked {
+  background:
+    repeating-linear-gradient(45deg, transparent 0 9px, var(--p5-hatch-locked) 9px 10px),
+    var(--bg-2);
+}
+
+/* PASSIVE chip — steeper slant than the card for visual rhythm; reads
+   as a stamped tag rather than another rounded pill. */
+.character-grid .passive-badge {
+  display: inline-block;
+  padding: 2px 12px;
+  background: var(--accent);
+  color: #000;
+  font-weight: 800;
+  letter-spacing: 2.5px;
+  font-size: 10px;
+  border: 0;
+  border-radius: 0;
+  clip-path: polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%);
+}

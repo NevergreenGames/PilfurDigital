@@ -8,6 +8,7 @@ import { useUIStore } from './state/uiStore';
 import './styles/globals.css';
 import './styles/title.css';
 import './styles/overlays.css';
+import './styles/p5.css';
 
 // Runtime debug surface — handy for testing in the browser console
 // (window.__pilfur.gameStore.getState() etc.). Harmless in prod.

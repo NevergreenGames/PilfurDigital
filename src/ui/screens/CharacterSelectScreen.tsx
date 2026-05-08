@@ -122,15 +122,15 @@ export function CharacterSelectScreen() {
             .filter(Boolean)
             .join(' ');
           return (
-            // Stagger lives on the wrapper so the button's own animation
-            // property (hover/active/selected) can swap freely without
-            // restarting the entrance opacity:0 → 1 keyframe. See note in
-            // globals.css under .character-grid > .stagger-item.
+            // Stagger lives on the outer wrapper; the inner
+            // .character-card-frame is the unclipped host for the
+            // angular offset-shadow ::before. See styles/p5.css.
             <div
               key={c.id}
               className="stagger-item"
               style={staggerStyle(i, { step: 80, initial: 120 })}
             >
+            <div className="character-card-frame">
             <button
               type="button"
               className={classes}
@@ -193,6 +193,7 @@ export function CharacterSelectScreen() {
                 </div>
               )}
             </button>
+            </div>
             </div>
           );
         })}
