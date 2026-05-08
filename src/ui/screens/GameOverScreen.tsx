@@ -1,5 +1,7 @@
 import { useGameStore } from '../../state/gameStore';
 import { DieGlyph } from '../components/DieGlyph';
+import { GlitchButton } from '../components/GlitchButton';
+import { GlitchTypewriter } from '../components/GlitchTypewriter';
 
 export function GameOverScreen() {
   const run = useGameStore((s) => s.run);
@@ -27,16 +29,26 @@ export function GameOverScreen() {
 
   return (
     <div className="screen game-over">
-      <h1>{headline}</h1>
-      <p className="subtitle">{subtitle}</p>
-      {!won && <p className="muted">{lossFlavor}</p>}
+      <h1>
+        <GlitchTypewriter text={headline} perWordMs={80} />
+      </h1>
+      <p className="subtitle">
+        <GlitchTypewriter text={subtitle} perWordMs={70} delayMs={200} />
+      </p>
+      {!won && (
+        <p className="muted">
+          <GlitchTypewriter text={lossFlavor} perWordMs={70} delayMs={500} />
+        </p>
+      )}
       <p>Final character die: <DieGlyph size={run.characterDie} px={20} /></p>
       <p className="muted">
         Abilities collected: {run.abilities.length}
       </p>
-      <button className="primary big" onClick={reset}>
-        {won ? 'NEW RUN' : 'TRY AGAIN'}
-      </button>
+      <GlitchButton
+        className="primary big"
+        onClick={reset}
+        label={won ? 'NEW RUN' : 'TRY AGAIN'}
+      />
     </div>
   );
 }

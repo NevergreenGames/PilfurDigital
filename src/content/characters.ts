@@ -4,6 +4,7 @@ export const CHARACTERS: Character[] = [
   {
     id: 'hacker',
     name: 'THE HACKER',
+    icon: '🧑‍💻',
     startingDie: 6,
     flavor: 'Social engineer. Finds the seams nobody else sees.',
     passive: {
@@ -15,21 +16,23 @@ export const CHARACTERS: Character[] = [
     },
   },
   {
-    id: 'demolitionist',
-    name: 'THE DEMOLITIONIST',
+    id: 'acrobat',
+    name: 'THE ACROBAT',
+    icon: '🤸',
     startingDie: 4,
-    flavor: "Believes there's no lock a little more noise can't open.",
+    flavor: "Two steps ahead, three steps off-beat. Never where the dust settles.",
     passive: {
-      id: 'noHeatRerollOnPhaseFulfill',
-      name: 'AFTERSHOCK',
-      icon: '💣',
-      text: "Heat doesn't reroll when you fulfill a phase tile — only when you step onto a cleared one.",
-      flavor: "The dust hasn't settled. They can't see yet.",
+      id: 'noHeatFulfillOnPhaseFulfill',
+      name: 'TUMBLE',
+      icon: '🌀',
+      text: "Heat doesn't claim tiles as long as you keep claiming tiles.",
+      flavor: 'They keep watching where you were. You keep moving.',
     },
   },
   {
     id: 'veteran',
     name: 'THE VETERAN',
+    icon: '🎖️',
     startingDie: 10,
     flavor: 'Has seen every job go sideways. Starts ahead, grows slow.',
     passive: {
@@ -43,6 +46,7 @@ export const CHARACTERS: Character[] = [
   {
     id: 'phantom',
     name: 'THE PHANTOM',
+    icon: '🥷',
     startingDie: 4,
     flavor: 'Half here, half elsewhere. Every door opens twice.',
     passive: {
@@ -51,6 +55,20 @@ export const CHARACTERS: Character[] = [
       icon: '👻',
       text: 'Each phase tile fulfilled grafts two ghost d4s onto your pool. They fade on the next fulfillment.',
       flavor: 'Borrowed from the version of you that didn\'t blink.',
+    },
+  },
+  {
+    id: 'demolitionist',
+    name: 'THE DEMOLITIONIST',
+    icon: '🧨',
+    startingDie: 6,
+    flavor: "Believes there's no lock a little more noise can't open.",
+    passive: {
+      id: 'reclaimHeatTilesByDiceSum',
+      name: 'BREACH',
+      icon: '💣',
+      text: 'Spend dice summing ≥ the heat that claimed a tile to break the lock and walk through. No rewards — just the door.',
+      flavor: 'Whatever they sealed, you can unseal louder.',
     },
   },
 ];

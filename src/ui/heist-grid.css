@@ -308,6 +308,39 @@
   animation: hg-heat-lock 600ms ease-out;
 }
 
+/* Demolitionist BREACH — heat-fulfilled tile that the player can reclaim.
+   Override the not-allowed cursor + dim look so the tile reads as a
+   live target. The lock icon is hidden by the conditional in TileView;
+   the breach req chip + ghosted card icon take its place. */
+.hg-tile--breachable.hg-tile--heatFulfilled {
+  cursor: pointer;
+  filter: none;
+  box-shadow: inset 0 0 0 2px rgba(255, 138, 160, 0.55), 0 0 12px rgba(255, 138, 160, 0.4);
+}
+.hg-tile-head--breach {
+  opacity: 0.55;
+}
+.hg-tile-breach-req {
+  position: absolute;
+  bottom: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 14px;
+  font-weight: bold;
+  letter-spacing: 1px;
+  color: var(--danger);
+  background: rgba(5, 5, 9, 0.7);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+.hg-tile--breachable.hg-tile--will-succeed .hg-tile-breach-req {
+  color: var(--stash);
+  border-color: var(--stash);
+  background: rgba(5, 5, 9, 0.85);
+}
+
 /* Pending-fill affordances — applied while flying dice are en route. The
    tile keeps its revealed look but telegraphs which incoming force is
    coming for it. */
@@ -494,6 +527,70 @@
   filter: brightness(1.15);
 }
 
+/* ──────────────────────────────────────────────────────────────────────
+   GLITCH HOVER / ACTIVE — same chromatic-aberration vocabulary the
+   character / rig select cards use, applied to actionable phase tiles
+   so hovering and clicking reads as part of the same visual language.
+   Non-actionable tiles get no hover glitch — they're already faded by
+   the .hg-grid--has-actions backdrop dim and shouldn't invite clicks.
+   ────────────────────────────────────────────────────────────────── */
+
+.hg-tile--movable:hover,
+.hg-tile--fulfillable:hover {
+  box-shadow:
+    2px 0 0 0 rgba(247, 118, 142, 0.55),
+    -2px 0 0 0 rgba(108, 255, 224, 0.55),
+    0 2px 0 0 rgba(198, 108, 255, 0.4);
+}
+.hg-tile--movable:hover .hg-tile-name,
+.hg-tile--fulfillable:hover .hg-tile-name {
+  text-shadow:
+    1px 0 0 rgba(247, 118, 142, 0.7),
+    -1px 0 0 rgba(108, 255, 224, 0.7);
+}
+
+.hg-tile--movable:active,
+.hg-tile--fulfillable:active {
+  box-shadow:
+    5px 0 0 0 rgba(247, 118, 142, 0.85),
+    -5px 0 0 0 rgba(108, 255, 224, 0.85),
+    0 4px 0 0 rgba(198, 108, 255, 0.7);
+  filter: brightness(1.2) saturate(1.15);
+  animation: hg-tile-shock 280ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.hg-tile--movable:active .hg-tile-name,
+.hg-tile--fulfillable:active .hg-tile-name {
+  text-shadow:
+    2px 0 0 #f7768e,
+    -2px 0 0 #6cffe0;
+}
+
+@keyframes hg-tile-shock {
+  0% {
+    box-shadow:
+      5px 0 0 0 rgba(247, 118, 142, 0.85),
+      -5px 0 0 0 rgba(108, 255, 224, 0.85),
+      0 0 0 0 rgba(198, 108, 255, 0.7);
+  }
+  60% {
+    box-shadow:
+      5px 0 0 0 rgba(247, 118, 142, 0.85),
+      -5px 0 0 0 rgba(108, 255, 224, 0.85),
+      0 0 14px 4px rgba(198, 108, 255, 0.4);
+  }
+  100% {
+    box-shadow:
+      5px 0 0 0 rgba(247, 118, 142, 0.85),
+      -5px 0 0 0 rgba(108, 255, 224, 0.85),
+      0 0 0 10px rgba(198, 108, 255, 0);
+  }
+}
+
+body[data-reduce-motion="true"] .hg-tile--movable:active,
+body[data-reduce-motion="true"] .hg-tile--fulfillable:active {
+  animation: none;
+}
+
 /* Backdrop dim — when at least one tile on the grid is actionable, every
    non-actionable tile is desaturated and dimmed so the candidate moves
    read in sharp contrast against the dim chrome. The actionable tiles
@@ -673,6 +770,25 @@
   font-size: 18px;
   border: 2px solid var(--bg);
   box-shadow: 0 0 0 2px var(--phase), 0 2px 6px rgba(0, 0, 0, 0.6);
+  /* Idle "alive" loop — slow vertical bob + gentle scale breathe + a soft
+     blue glow that pulses with the breathe so the character reads as
+     standing on a tile, not glued to it. Subtle on purpose: the pawn is on
+     screen the whole heist, this can't pull attention. The
+     body[data-reduce-motion="true"] override in styles/overlays.css
+     collapses every animation to ~0ms, so reduce-motion users get a still
+     pawn for free. */
+  animation: hg-pawn-idle 3s ease-in-out infinite;
+  will-change: transform, filter;
+}
+@keyframes hg-pawn-idle {
+  0%, 100% {
+    transform: translateY(0) scale(1);
+    filter: drop-shadow(0 0 2px rgba(122, 162, 247, 0.35));
+  }
+  50% {
+    transform: translateY(-2px) scale(1.04);
+    filter: drop-shadow(0 0 6px rgba(122, 162, 247, 0.7));
+  }
 }
 
 /* Fulfilled markers */
@@ -984,6 +1100,18 @@
   70%  { transform: rotate(-14deg) scale(1.04); }
   85%  { transform: rotate(8deg) scale(0.98); }
   100% { transform: rotate(0) scale(1); }
+}
+
+/* Per-die reroll shake — fires when a reroll-class ability
+   (rerollHighest / rerollLowest / rerollAll / rerollSelected) changes
+   a die's value. Reuses the same `hg-die-tumble` keyframes the
+   whole-pool roll uses on each die so the visual matches exactly:
+   same duration, same easing, same translate/rotate amplitude. The
+   impact rule (`.hg-dice-row .die.die--impacted`) has higher
+   specificity and overrides this when both classes are present —
+   matching the existing roll-jiggle/impact precedence. */
+.die.die--rerolling {
+  animation: hg-die-tumble 0.65s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
 }
 
 .hg-dice-summary {
@@ -1696,6 +1824,25 @@
   flex-direction: column;
   gap: 10px;
 }
+
+/* Inline pool mirror that appears below the choice list when an event
+   needs the player to select pool dice. Visually de-emphasized — a
+   thin magenta divider, small label, and the existing DicePoolView
+   underneath. The selection state is the same one the sidebar reads,
+   so dice toggled here update both views simultaneously. */
+.event-modal-pool {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px dashed rgba(198, 108, 255, 0.35);
+}
+.event-modal-pool-label {
+  font-size: 10px;
+  font-weight: bold;
+  letter-spacing: 3px;
+  color: #c66cff;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+}
 .event-choice {
   display: flex;
   flex-direction: column;
@@ -1876,6 +2023,10 @@
   animation: glitch-flicker 220ms steps(2, end);
 }
 .glitch-word--resolved {
+  /* Hand the color back to the parent once decoded — keeps high contrast
+     against warm/orange/yellow buttons (.primary, button.big, etc.)
+     where the unresolved pink would wash out. */
+  color: inherit;
   text-shadow: none;
   animation: none;
 }

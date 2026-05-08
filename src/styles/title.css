@@ -51,12 +51,175 @@
   text-shadow:
     0 0 24px rgba(240, 189, 114, 0.18),
     0 4px 0 #2a2a3c;
-  animation: title-pop 700ms ease-out;
+  /* Two stacked animations:
+     - pop  : the one-shot entrance (700ms).
+     - flux : a long-duration loop that holds the title still ~95% of
+              the time and bursts a brief RGB-aberration glitch in the
+              remaining 5%. The randomness comes from layering two
+              loops at unrelated periods (8.7s and 11.3s) so the
+              destabilized frames don't repeat in lockstep. */
+  animation:
+    title-pop 700ms ease-out,
+    title-flux 8.7s steps(60, end) 700ms infinite,
+    title-flux-b 11.3s steps(60, end) 700ms infinite;
 }
 
 @keyframes title-pop {
   0%   { transform: translateY(8px) scale(0.96); opacity: 0; }
   100% { transform: translateY(0)   scale(1);    opacity: 1; }
+}
+
+/* `title-flux` — primary glitch burst. Most frames are pristine (the
+   timeline below shows them as identity transforms); only a few
+   neighboring keyframes near 80% destabilize the wordmark. The
+   `steps(60)` timing keeps the glitch reads as discrete frames rather
+   than a smooth slide. */
+@keyframes title-flux {
+  0%, 78%, 86%, 100% {
+    transform: translate(0, 0);
+    text-shadow:
+      0 0 24px rgba(240, 189, 114, 0.18),
+      0 4px 0 #2a2a3c;
+    filter: none;
+  }
+  79% {
+    transform: translate(-2px, 1px);
+    text-shadow:
+      2px 0 #c66cff,
+      -2px 0 #6cffe0,
+      0 0 24px rgba(240, 189, 114, 0.18),
+      0 4px 0 #2a2a3c;
+    filter: hue-rotate(20deg);
+  }
+  81% {
+    transform: translate(3px, -1px);
+    text-shadow:
+      -3px 0 #c66cff,
+      3px 0 #6cffe0,
+      0 0 24px rgba(240, 189, 114, 0.18),
+      0 4px 0 #2a2a3c;
+    filter: hue-rotate(-30deg) saturate(1.5);
+  }
+  83% {
+    transform: translate(-1px, 0);
+    text-shadow:
+      1px 0 #c66cff,
+      -1px 0 #6cffe0,
+      0 0 24px rgba(240, 189, 114, 0.18),
+      0 4px 0 #2a2a3c;
+  }
+}
+
+/* `title-flux-b` — secondary loop at a different period and a different
+   spike location. Combined with title-flux this irregularly produces
+   single, double, or overlapping glitches over time. */
+@keyframes title-flux-b {
+  0%, 32%, 38%, 100% {
+    transform: translate(0, 0);
+    opacity: 1;
+  }
+  33% {
+    transform: translate(2px, 0);
+    opacity: 0.85;
+  }
+  35% {
+    transform: translate(-1px, 1px);
+    opacity: 0.95;
+  }
+  37% {
+    transform: translate(0, -1px);
+    opacity: 0.65;
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   GlitchTitle — JS-driven character substitution + screen-tear effect
+   layered ON TOP of the CSS-only title-flux loops above. The component
+   owns timing; this stylesheet defines the visual treatment for each
+   state.
+
+   Markup shape (when tearing):
+     .glitch-title.glitch-title--tearing
+       .glitch-title-main      ← the visible text
+       .glitch-title-tear--1   ← top band (clip-path inset)
+       .glitch-title-tear--2   ← middle band
+       .glitch-title-tear--3   ← bottom band
+   ────────────────────────────────────────────────────────────────── */
+
+.glitch-title {
+  position: relative;
+  display: inline-block;
+  /* Default tear-color used by emoji-substituted glyphs INSIDE the
+     main span (not the tear bands, which override it below). */
+  --tear-color: var(--fg);
+}
+.glitch-title-main {
+  position: relative;
+  z-index: 1;
+}
+
+/* Each tear band re-renders the same characters as the main span,
+   absolutely positioned over it, with clip-path keeping only a
+   horizontal slice visible. The X-axis offset + tinted color +
+   screen blend mode together read as RGB-channel separation —
+   the classic "screen tearing" / VHS-roll look. */
+.glitch-title-tear {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  display: inline-block;
+  z-index: 2;
+  white-space: nowrap;
+  mix-blend-mode: screen;
+  /* Disable the inherited title-pop / title-flux animations on the
+     tear copies — they have their own quick X-jitter to make the
+     tear feel alive without resyncing with the entrance. */
+  animation: tear-jitter 120ms steps(4, end) infinite;
+  text-shadow: none;
+}
+.glitch-title-tear--1 {
+  clip-path: inset(0 0 66% 0);
+  transform: translateX(4px);
+  color: #f7768e;
+  --tear-color: #f7768e;
+  animation-delay: 0ms;
+}
+.glitch-title-tear--2 {
+  clip-path: inset(33% 0 33% 0);
+  transform: translateX(-5px);
+  color: #6cffe0;
+  --tear-color: #6cffe0;
+  animation-delay: 30ms;
+}
+.glitch-title-tear--3 {
+  clip-path: inset(66% 0 0 0);
+  transform: translateX(3px);
+  color: #c66cff;
+  --tear-color: #c66cff;
+  animation-delay: 60ms;
+}
+
+/* Per-band X-jitter — small, fast, irregular. The base translateX
+   above sets the band's resting position; this animation nudges
+   from that resting position. Composed via translateX accumulation
+   inside each frame so the resting offset isn't lost. */
+@keyframes tear-jitter {
+  0% { translate: 0 0; }
+  25% { translate: -2px 0; }
+  50% { translate: 1px 1px; }
+  75% { translate: -1px -1px; }
+  100% { translate: 0 0; }
+}
+
+/* Emoji substitution rendered via the silhouette trick — `color:
+   transparent` hides the rasterized emoji glyph; `text-shadow` with
+   zero offset/blur paints the glyph's silhouette in `--tear-color`
+   (which the band sets, or defaults to the title color). Result: the
+   emoji shape inherits the title's color rather than being a
+   platform-specific bitmap. */
+.glitch-title-emoji {
+  color: transparent;
+  text-shadow: 0 0 0 var(--tear-color, var(--fg));
 }
 
 .title-tagline {

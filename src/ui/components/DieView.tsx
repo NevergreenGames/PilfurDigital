@@ -14,6 +14,11 @@ interface Props {
   // Just transformed by an ability activation — the die enlarges, glows
   // and jiggles for ~750ms so the player sees the effect take hold.
   impacted?: boolean;
+  // Just rerolled by a reroll-class ability (rerollHighest / rerollLowest
+  // / rerollAll / rerollSelected). Plays the same shake the whole-pool
+  // roll plays. Composes with `impacted` — they animate distinct
+  // properties (reroll: translate/rotate; impact: filter/scale).
+  rerolling?: boolean;
 }
 
 const SOURCE_COLORS: Record<string, string> = {
@@ -52,6 +57,7 @@ export function DieView({
   ghost,
   spotlight,
   impacted,
+  rerolling,
 }: Props) {
   const color = SOURCE_COLORS[die.source] ?? '#aaa';
   const points = DIE_POLYGONS[die.size];
@@ -66,6 +72,7 @@ export function DieView({
     ghost ? `die--${ghost}` : '',
     spotlight ? 'die--spotlight' : '',
     impacted ? 'die--impacted' : '',
+    rerolling ? 'die--rerolling' : '',
     isGhostSource ? 'die--ghost-source' : '',
   ]
     .filter(Boolean)

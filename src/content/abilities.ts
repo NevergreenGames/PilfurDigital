@@ -9,6 +9,12 @@ import { CharacterAbility } from '../engine/types';
  *   - `flavor` : narrative line, shown muted below the trigger.
  *
  * The trigger glyph is rendered separately (derived from `trigger`).
+ *
+ * `maxCharges` caps the stored charges (charges accumulate from rolls;
+ * activation spends one). Default is 3 across the board — set lower
+ * (e.g. 1) for one-shot "press the big red button" abilities. `upgrades`
+ * is run-local: every freshly drafted ability arrives with an empty
+ * array, populated by upgrade-draft picks and workbench events.
  */
 
 export const draftedAbilityPool: CharacterAbility[] = [
@@ -22,6 +28,8 @@ export const draftedAbilityPool: CharacterAbility[] = [
     cost: 10,
     trigger: { kind: 'sum', op: 'eq', value: 10, minDice: 2 },
     effect: { id: 'rerollAll', text: 'Reroll all pool dice' },
+    maxCharges: 3,
+    upgrades: [],
   },
   {
     id: 'fencing-the-loot',
@@ -32,6 +40,8 @@ export const draftedAbilityPool: CharacterAbility[] = [
     cost: 10,
     trigger: { kind: 'sum', op: 'gte', value: 16, minDice: 2 },
     effect: { id: 'removeHeat', text: 'Remove 2 heat dice', params: { count: 2 } },
+    maxCharges: 3,
+    upgrades: [],
   },
   {
     id: 'crowbar-work',
@@ -42,6 +52,8 @@ export const draftedAbilityPool: CharacterAbility[] = [
     cost: 4,
     trigger: { kind: 'sum', op: 'lt', value: 3, minDice: 2 },
     effect: { id: 'rerollLowest', text: 'Reroll the lowest die' },
+    maxCharges: 3,
+    upgrades: [],
   },
 
   // --- X-of-a-kind (3) ------------------------------------------------------
@@ -54,6 +66,8 @@ export const draftedAbilityPool: CharacterAbility[] = [
     cost: 6,
     trigger: { kind: 'xOfAKind', count: 3 },
     effect: { id: 'setTwoDiceToOne', text: 'Set 2 dice to 1', requiresTarget: 'dice' },
+    maxCharges: 3,
+    upgrades: [],
   },
   {
     id: 'forgers-touch',
@@ -64,6 +78,8 @@ export const draftedAbilityPool: CharacterAbility[] = [
     cost: 8,
     trigger: { kind: 'xOfAKind', count: 4 },
     effect: { id: 'duplicateDie', text: 'Duplicate a die', requiresTarget: 'die' },
+    maxCharges: 3,
+    upgrades: [],
   },
   {
     id: 'cased-the-joint',
@@ -74,6 +90,8 @@ export const draftedAbilityPool: CharacterAbility[] = [
     cost: 7,
     trigger: { kind: 'xOfAKind', count: 5 },
     effect: { id: 'addDice', text: 'Add a d6 to the pool', params: { sizes: [6] } },
+    maxCharges: 3,
+    upgrades: [],
   },
 
   // --- Straights (2) --------------------------------------------------------
@@ -86,6 +104,8 @@ export const draftedAbilityPool: CharacterAbility[] = [
     cost: 7,
     trigger: { kind: 'straight', length: 4 },
     effect: { id: 'rerollSelected', text: 'Reroll selected dice', requiresTarget: 'dice' },
+    maxCharges: 3,
+    upgrades: [],
   },
   {
     id: 'second-story-climb',
@@ -96,6 +116,8 @@ export const draftedAbilityPool: CharacterAbility[] = [
     cost: 5,
     trigger: { kind: 'straight', length: 5 },
     effect: { id: 'rerollHighest', text: 'Reroll the highest die' },
+    maxCharges: 3,
+    upgrades: [],
   },
 
   // --- Single-die / creative (4) --------------------------------------------
@@ -108,6 +130,8 @@ export const draftedAbilityPool: CharacterAbility[] = [
     cost: 5,
     trigger: { kind: 'sum', op: 'eq', value: 2, minDice: 2 },
     effect: { id: 'removeOnes', text: 'Remove all dice showing 1' },
+    maxCharges: 3,
+    upgrades: [],
   },
   {
     id: 'lockpick-whisper',
@@ -118,6 +142,8 @@ export const draftedAbilityPool: CharacterAbility[] = [
     cost: 8,
     trigger: { kind: 'sum', op: 'gte', value: 8, minDice: 1 },
     effect: { id: 'setDieToMax', text: 'Set a die to its max', requiresTarget: 'die' },
+    maxCharges: 3,
+    upgrades: [],
   },
   {
     id: 'marked-card',
@@ -133,6 +159,8 @@ export const draftedAbilityPool: CharacterAbility[] = [
       params: { value: 3 },
       requiresTarget: 'die',
     },
+    maxCharges: 3,
+    upgrades: [],
   },
   {
     id: 'bribe-the-beat',
@@ -143,6 +171,8 @@ export const draftedAbilityPool: CharacterAbility[] = [
     cost: 6,
     trigger: { kind: 'sum', op: 'gte', value: 15, minDice: 3 },
     effect: { id: 'removeHeat', text: 'Remove 1 heat die', params: { count: 1 } },
+    maxCharges: 3,
+    upgrades: [],
   },
 
   // --- Former character signatures, now draftable ---------------------------
@@ -155,6 +185,8 @@ export const draftedAbilityPool: CharacterAbility[] = [
     cost: 8,
     trigger: { kind: 'xOfAKind', count: 3 },
     effect: { id: 'setDieToMax', text: 'Set a die to its max', requiresTarget: 'die' },
+    maxCharges: 3,
+    upgrades: [],
   },
   {
     id: 'shapedCharge',
@@ -165,6 +197,8 @@ export const draftedAbilityPool: CharacterAbility[] = [
     cost: 9,
     trigger: { kind: 'sum', op: 'gte', value: 12, minDice: 2 },
     effect: { id: 'rerollAll', text: 'Reroll all pool dice' },
+    maxCharges: 3,
+    upgrades: [],
   },
   {
     id: 'steadyHand',
@@ -175,5 +209,7 @@ export const draftedAbilityPool: CharacterAbility[] = [
     cost: 9,
     trigger: { kind: 'straight', length: 4 },
     effect: { id: 'removeHeat', text: 'Remove 2 heat dice', params: { count: 2 } },
+    maxCharges: 3,
+    upgrades: [],
   },
 ];

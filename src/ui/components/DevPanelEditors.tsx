@@ -1,7 +1,11 @@
 import { ChangeEvent, ReactNode } from 'react';
 import {
+  AchievementId,
+  Character,
   CharacterAbility,
+  CharacterPassive,
   DieSize,
+  DieSource,
   EffectId,
   EffectSpec,
   EventChoice,
@@ -9,10 +13,16 @@ import {
   EventDef,
   EventReward,
   HeistTarget,
+  PassiveId,
   PhaseCard,
   Requirement,
   RequirementOp,
+  Rig,
+  RigStartingDie,
+  Screen,
 } from '../../engine/types';
+import { TutorialStep, TutorialMode } from '../../tutorial/steps';
+import { ACHIEVEMENTS } from '../../content/achievements';
 
 /*
  * Form-based editors for the dev panel. Each item-kind editor
@@ -67,6 +77,7 @@ const EVENT_CHOICE_KINDS: EventChoiceKind[] = [
   'payAbility',
   'opposeRoll',
   'thresholdRoll',
+  'upgradeAbility',
   'walkAway',
 ];
 
@@ -922,11 +933,11 @@ interface PhaseCardEditorProps {
 
 export function PhaseCardEditor({ value, onChange }: PhaseCardEditorProps) {
   const patch = (p: Partial<PhaseCard>) => onChange({ ...value, ...p });
+  // The name field is rendered by DevPanelScreen as a click-to-edit
+  // <h2> in the detail header — it's the same draft.name behind the
+  // scenes, so duplicating it here would just confuse the player.
   return (
     <div className="dev-form">
-      <Field label="Name" inline>
-        <TextInput value={value.name} onChange={(t) => patch({ name: t })} />
-      </Field>
       <Field label="Type" inline>
         <select
           className="dev-input dev-input--select"
@@ -954,6 +965,26 @@ export function PhaseCardEditor({ value, onChange }: PhaseCardEditorProps) {
           onChange={(r) => patch({ requirement: r })}
         />
       </Field>
+      <OptionalField
+        label="Difficulty (placement bucket)"
+        hint="Easy = near the player at start. Hard = around the heist target. When off, the engine guesses from the requirement shape."
+        enabled={value.difficulty !== undefined}
+        onToggle={(on) =>
+          patch({ difficulty: on ? 2 : undefined })
+        }
+      >
+        <select
+          className="dev-input dev-input--select"
+          value={value.difficulty ?? 2}
+          onChange={(e) =>
+            patch({ difficulty: Number(e.target.value) as 1 | 2 | 3 })
+          }
+        >
+          <option value={1}>1 — easy (near start)</option>
+          <option value={2}>2 — medium</option>
+          <option value={3}>3 — hard (near target)</option>
+        </select>
+      </OptionalField>
       <Field label="Momentum dice (rewarded on fulfill)">
         <DieSizeListEditor
           value={value.momentumDice}
@@ -1011,11 +1042,10 @@ interface AbilityEditorProps {
 
 export function AbilityEditor({ value, onChange }: AbilityEditorProps) {
   const patch = (p: Partial<CharacterAbility>) => onChange({ ...value, ...p });
+  // Name is owned by the detail header (click-to-edit). See note in
+  // PhaseCardEditor.
   return (
     <div className="dev-form">
-      <Field label="Name" inline>
-        <TextInput value={value.name} onChange={(t) => patch({ name: t })} />
-      </Field>
       <Field label="Icon (emoji)" inline>
         <TextInput
           value={value.icon}
@@ -1036,6 +1066,18 @@ export function AbilityEditor({ value, onChange }: AbilityEditorProps) {
           onChange={(n) => patch({ cost: n })}
           min={0}
           max={50}
+        />
+      </Field>
+      <Field
+        label="Max charges (1–10)"
+        inline
+        hint="Cap on stored charges. Defaults to 3."
+      >
+        <NumberInput
+          value={value.maxCharges ?? 3}
+          onChange={(n) => patch({ maxCharges: Math.min(10, Math.max(1, n)) })}
+          min={1}
+          max={10}
         />
       </Field>
       <Field label="Charge trigger">
@@ -1072,11 +1114,10 @@ interface TargetEditorProps {
 
 export function TargetEditor({ value, onChange }: TargetEditorProps) {
   const patch = (p: Partial<HeistTarget>) => onChange({ ...value, ...p });
+  // Name is owned by the detail header (click-to-edit). See note in
+  // PhaseCardEditor.
   return (
     <div className="dev-form">
-      <Field label="Name" inline>
-        <TextInput value={value.name} onChange={(t) => patch({ name: t })} />
-      </Field>
       <Field label="Icon (emoji)" inline>
         <TextInput value={value.icon} onChange={(t) => patch({ icon: t })} />
       </Field>
@@ -1131,11 +1172,10 @@ interface EventEditorProps {
 
 export function EventEditor({ value, onChange }: EventEditorProps) {
   const patch = (p: Partial<EventDef>) => onChange({ ...value, ...p });
+  // Title is owned by the detail header (click-to-edit). See note in
+  // PhaseCardEditor.
   return (
     <div className="dev-form">
-      <Field label="Title" inline>
-        <TextInput value={value.title} onChange={(t) => patch({ title: t })} />
-      </Field>
       <Field label="Flavor (typewriter narrative)">
         <TextArea
           value={value.flavor}
@@ -1149,6 +1189,367 @@ export function EventEditor({ value, onChange }: EventEditorProps) {
           onChange={(c) => patch({ choices: c })}
         />
       </Field>
+    </div>
+  );
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Tutorial step editor — id and shouldShow predicate are NOT editable.
+// Mode flips between 'auto' (no dismiss button, gate-driven) and 'info'
+// (player must click GOT IT or hit Esc). Anchor is a CSS selector for
+// the spotlight; leaving it off renders a centered modal.
+// ───────────────────────────────────────────────────────────────────────────
+
+const TUTORIAL_SCREENS: Screen[] = [
+  'title',
+  'characterSelect',
+  'rigSelect',
+  'map',
+  'heist',
+  'draft',
+  'gameOver',
+  'dev',
+];
+
+const TUTORIAL_MODES: TutorialMode[] = ['auto', 'info'];
+
+interface TutorialStepEditorProps {
+  value: TutorialStep;
+  onChange: (next: TutorialStep) => void;
+}
+
+export function TutorialStepEditor({ value, onChange }: TutorialStepEditorProps) {
+  const patch = (p: Partial<TutorialStep>) => onChange({ ...value, ...p });
+  return (
+    <div className="dev-form">
+      <Field label="Screen" hint="Which game screen this step belongs to.">
+        <select
+          className="dev-input dev-input--select"
+          value={value.screen}
+          onChange={(e) => patch({ screen: e.target.value as Screen })}
+        >
+          {TUTORIAL_SCREENS.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <Field
+        label="Mode"
+        hint="'auto' dismisses on its own when the gate flips false. 'info' requires GOT IT (or Esc)."
+      >
+        <select
+          className="dev-input dev-input--select"
+          value={value.mode}
+          onChange={(e) => patch({ mode: e.target.value as TutorialMode })}
+        >
+          {TUTORIAL_MODES.map((m) => (
+            <option key={m} value={m}>
+              {m}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <Field label="Text" hint="Body copy shown inside the tooltip.">
+        <TextArea
+          value={value.text}
+          onChange={(t) => patch({ text: t })}
+          rows={4}
+        />
+      </Field>
+      <OptionalField
+        label="Anchor selector"
+        hint="CSS selector for the highlighted element. Leave off for a centered modal."
+        enabled={value.anchor !== undefined}
+        onToggle={(on) =>
+          patch(
+            on
+              ? { anchor: value.anchor ?? '' }
+              : (() => {
+                  const { anchor: _omit, ...rest } = value;
+                  void _omit;
+                  return rest as TutorialStep;
+                })(),
+          )
+        }
+      >
+        <input
+          type="text"
+          className="dev-input"
+          value={value.anchor ?? ''}
+          onChange={(e) => patch({ anchor: e.target.value })}
+          placeholder=".some-class, #some-id"
+        />
+      </OptionalField>
+    </div>
+  );
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Character editor — name comes from the header rename treatment; this
+// editor exposes the rest plus a nested passive sub-editor.
+// ───────────────────────────────────────────────────────────────────────────
+
+const PASSIVE_IDS: PassiveId[] = [
+  'bonusD6OnPhaseFulfill',
+  'noHeatFulfillOnPhaseFulfill',
+  'keepMomentumBetweenHeists',
+  'ghostDiceOnPhaseFulfill',
+];
+
+interface PassiveEditorProps {
+  value: CharacterPassive;
+  onChange: (next: CharacterPassive) => void;
+}
+
+function PassiveEditor({ value, onChange }: PassiveEditorProps) {
+  const patch = (p: Partial<CharacterPassive>) => onChange({ ...value, ...p });
+  return (
+    <div className="dev-sub">
+      <Field
+        label="Passive id (engine-driven behavior)"
+        hint="The id maps onto a hard-wired engine branch — see PassiveId in engine/types.ts."
+        inline
+      >
+        <select
+          className="dev-input dev-input--select"
+          value={value.id}
+          onChange={(e) => patch({ id: e.target.value as PassiveId })}
+        >
+          {PASSIVE_IDS.map((id) => (
+            <option key={id} value={id}>
+              {id}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <Field label="Name (display)" inline>
+        <TextInput value={value.name} onChange={(t) => patch({ name: t })} />
+      </Field>
+      <Field label="Icon (emoji)" inline>
+        <TextInput
+          value={value.icon}
+          onChange={(t) => patch({ icon: t })}
+          placeholder="💣"
+        />
+      </Field>
+      <Field label="Text (mechanics line)">
+        <TextArea value={value.text} onChange={(t) => patch({ text: t })} rows={2} />
+      </Field>
+      <OptionalField
+        label="Flavor"
+        enabled={value.flavor !== undefined}
+        onToggle={(on) => patch({ flavor: on ? '' : undefined })}
+      >
+        <TextArea
+          value={value.flavor ?? ''}
+          onChange={(t) => patch({ flavor: t })}
+          rows={2}
+        />
+      </OptionalField>
+    </div>
+  );
+}
+
+interface CharacterEditorProps {
+  value: Character;
+  onChange: (next: Character) => void;
+}
+
+export function CharacterEditor({ value, onChange }: CharacterEditorProps) {
+  const patch = (p: Partial<Character>) => onChange({ ...value, ...p });
+  return (
+    <div className="dev-form">
+      <Field label="Icon (pawn emoji)" inline>
+        <TextInput
+          value={value.icon}
+          onChange={(t) => patch({ icon: t })}
+          placeholder="🧑‍💻"
+        />
+      </Field>
+      <Field label="Starting die size" inline>
+        <select
+          className="dev-input dev-input--select"
+          value={value.startingDie}
+          onChange={(e) =>
+            patch({ startingDie: Number(e.target.value) as DieSize })
+          }
+        >
+          {DIE_SIZES.map((s) => (
+            <option key={s} value={s}>
+              d{s}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <OptionalField
+        label="Flavor"
+        enabled={value.flavor !== undefined}
+        onToggle={(on) => patch({ flavor: on ? '' : undefined })}
+      >
+        <TextArea
+          value={value.flavor ?? ''}
+          onChange={(t) => patch({ flavor: t })}
+          rows={2}
+        />
+      </OptionalField>
+      <Field label="Passive">
+        <PassiveEditor
+          value={value.passive}
+          onChange={(p) => patch({ passive: p })}
+        />
+      </Field>
+    </div>
+  );
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Rig editor — starting dice list (size/source/count) + gold + optional
+// unlock-achievement gate.
+// ───────────────────────────────────────────────────────────────────────────
+
+const DIE_SOURCES: DieSource[] = ['phase', 'character', 'heat', 'stash', 'ghost'];
+
+interface RigStartingDiceEditorProps {
+  value: RigStartingDie[];
+  onChange: (next: RigStartingDie[]) => void;
+}
+
+function RigStartingDiceEditor({ value, onChange }: RigStartingDiceEditorProps) {
+  const updateAt = (i: number, next: RigStartingDie) => {
+    const out = [...value];
+    out[i] = next;
+    onChange(out);
+  };
+  const removeAt = (i: number) => onChange(value.filter((_, j) => j !== i));
+  const add = () =>
+    onChange([...value, { size: 6, source: 'stash', count: 1 }]);
+  return (
+    <div className="dev-rig-dice">
+      {value.map((d, i) => (
+        <div key={i} className="dev-rig-die-row">
+          <select
+            className="dev-input dev-input--select dev-input--small"
+            value={d.size}
+            onChange={(e) =>
+              updateAt(i, { ...d, size: Number(e.target.value) as DieSize })
+            }
+          >
+            {DIE_SIZES.map((s) => (
+              <option key={s} value={s}>
+                d{s}
+              </option>
+            ))}
+          </select>
+          <select
+            className="dev-input dev-input--select dev-input--small"
+            value={d.source}
+            onChange={(e) =>
+              updateAt(i, { ...d, source: e.target.value as DieSource })
+            }
+          >
+            {DIE_SOURCES.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+          <NumberInput
+            value={d.count}
+            onChange={(n) => updateAt(i, { ...d, count: n })}
+            min={1}
+            max={10}
+          />
+          <button
+            type="button"
+            className="dev-die-rm"
+            onClick={() => removeAt(i)}
+            aria-label="Remove"
+            title="Remove this die spec"
+          >
+            ✕
+          </button>
+        </div>
+      ))}
+      <button type="button" className="dev-add-btn" onClick={add}>
+        + ADD DIE SPEC
+      </button>
+    </div>
+  );
+}
+
+interface RigEditorProps {
+  value: Rig;
+  onChange: (next: Rig) => void;
+}
+
+export function RigEditor({ value, onChange }: RigEditorProps) {
+  const patch = (p: Partial<Rig>) => onChange({ ...value, ...p });
+  return (
+    <div className="dev-form">
+      <OptionalField
+        label="Icon (emoji)"
+        enabled={value.icon !== undefined}
+        onToggle={(on) => patch({ icon: on ? '🎒' : undefined })}
+      >
+        <TextInput
+          value={value.icon ?? ''}
+          onChange={(t) => patch({ icon: t })}
+          placeholder="🎒"
+        />
+      </OptionalField>
+      <OptionalField
+        label="Flavor"
+        enabled={value.flavor !== undefined}
+        onToggle={(on) => patch({ flavor: on ? '' : undefined })}
+      >
+        <TextArea
+          value={value.flavor ?? ''}
+          onChange={(t) => patch({ flavor: t })}
+          rows={2}
+        />
+      </OptionalField>
+      <Field label="Starting dice (added to first heist's pool)">
+        <RigStartingDiceEditor
+          value={value.startingDice}
+          onChange={(d) => patch({ startingDice: d })}
+        />
+      </Field>
+      <Field label="Starting creds" inline>
+        <NumberInput
+          value={value.startingGold}
+          onChange={(n) => patch({ startingGold: n })}
+          min={0}
+          max={99}
+        />
+      </Field>
+      <OptionalField
+        label="Unlock achievement (gates the rig)"
+        hint="Omit to leave the rig always unlocked."
+        enabled={value.unlockAchievementId !== undefined}
+        onToggle={(on) =>
+          patch({
+            unlockAchievementId: on
+              ? (ACHIEVEMENTS[0]?.id as AchievementId)
+              : undefined,
+          })
+        }
+      >
+        <select
+          className="dev-input dev-input--select"
+          value={value.unlockAchievementId ?? ACHIEVEMENTS[0]?.id ?? ''}
+          onChange={(e) =>
+            patch({ unlockAchievementId: e.target.value as AchievementId })
+          }
+        >
+          {ACHIEVEMENTS.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name} ({a.id})
+            </option>
+          ))}
+        </select>
+      </OptionalField>
     </div>
   );
 }

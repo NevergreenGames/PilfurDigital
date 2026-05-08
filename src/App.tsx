@@ -3,6 +3,7 @@ import { setScreen as audioSetScreen, unlockAudio } from './audio/engine';
 import { useGameStore } from './state/gameStore';
 import { useSettingsStore } from './state/settingsStore';
 import { CharacterSelectScreen } from './ui/screens/CharacterSelectScreen';
+import { RigSelectScreen } from './ui/screens/RigSelectScreen';
 import { CreditsModal } from './ui/components/CreditsModal';
 import { DevPanelButton } from './ui/components/DevPanelButton';
 import { DevPanelScreen } from './ui/screens/DevPanelScreen';
@@ -13,6 +14,7 @@ import { HeistScreen } from './ui/screens/HeistScreen';
 import { MapScreen } from './ui/screens/MapScreen';
 import { SettingsModal } from './ui/components/SettingsModal';
 import { TitleScreen } from './ui/screens/TitleScreen';
+import { SceneTransition } from './ui/transitions/SceneTransition';
 import { TutorialOverlay } from './tutorial/TutorialOverlay';
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
@@ -77,6 +79,9 @@ export function App() {
     case 'characterSelect':
       body = <CharacterSelectScreen />;
       break;
+    case 'rigSelect':
+      body = <RigSelectScreen />;
+      break;
     case 'map':
       body = <MapScreen />;
       break;
@@ -98,7 +103,9 @@ export function App() {
 
   return (
     <>
-      <ErrorBoundary>{body}</ErrorBoundary>
+      <ErrorBoundary>
+        <SceneTransition sceneKey={screen}>{body}</SceneTransition>
+      </ErrorBoundary>
       <GearIcon />
       <SettingsModal />
       <CreditsModal />

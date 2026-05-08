@@ -46,11 +46,20 @@ function load(): void {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return;
     const parsed = JSON.parse(raw) as Partial<ProgressState>;
-    state = {
-      completedCharacters: Array.isArray(parsed.completedCharacters)
-        ? parsed.completedCharacters.filter((s): s is string => typeof s === 'string')
-        : [],
-    };
+    const ids = Array.isArray(parsed.completedCharacters)
+      ? parsed.completedCharacters.filter((s): s is string => typeof s === 'string')
+      : [];
+    // Migration: the original 'demolitionist' was renamed to 'acrobat' when
+    // the new Demolitionist (BREACH passive) took over the slot. Persisted
+    // saves containing the old id need their entry mapped onto the new id
+    // so the unlock chain still resolves correctly.
+    const migrated = ids.map((id) => (id === 'demolitionist' ? 'acrobat' : id));
+    if (migrated.some((id, i) => id !== ids[i])) {
+      state = { completedCharacters: migrated };
+      persist();
+    } else {
+      state = { completedCharacters: ids };
+    }
   } catch {
     state = emptyProgress();
   }

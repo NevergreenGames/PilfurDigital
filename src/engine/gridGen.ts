@@ -107,6 +107,9 @@ export function bfsReachable(
 }
 
 export function cardDifficulty(card: PhaseCard): 1 | 2 | 3 {
+  // Explicit designer-set difficulty wins over the requirement heuristic
+  // (set via the dev panel; persisted as a content patch).
+  if (card.difficulty) return card.difficulty;
   const req = card.requirement;
   if (req.kind === 'sum') {
     const { op, value, minDice } = req;

@@ -77,7 +77,30 @@ export interface PhaseCard {
   // — optional, off-the-beaten-path bonuses placed far from the start
   // and the target.
   cacheReward?: number;
+  // Designer-set difficulty bucket: 1=easy (placed near the player at the
+  // start), 2=medium (mid-distance ring), 3=hard (placed around the heist
+  // target). When omitted, the engine derives a difficulty from the
+  // requirement shape via `cardDifficulty`.
+  difficulty?: 1 | 2 | 3;
 }
+
+// Per-ability upgrades — applied as an overlay on top of the canonical
+// ability definition. Acquired via the between-heist draft (mixed in with
+// new-ability options) and via "?" tile workbench events. Upgrades are
+// stored on each owned ability's `upgrades[]` and resolved at the engine
+// layer through `effectiveAbility`. Run-local: a fresh run starts with
+// every ability's `upgrades` array empty.
+export type AbilityUpgrade =
+  // +N to maxCharges. Final cap is clamped at 10.
+  | { kind: 'increaseMaxCharges'; by: number }
+  // When starting a heist with 0 charges, the ability begins with 1.
+  | { kind: 'startWithCharge' }
+  // For target-needing abilities, increases effectTargetMin by N.
+  | { kind: 'extraTarget'; by: number }
+  // Shrinks the trigger requirement (count/length/value) by N. Reductions
+  // are clamped at sane minimums (count ≥ 2 for xOfAKind; length ≥ 2 for
+  // straight; count ≥ 1 for evens/odds/maxes; value ≥ 1 for sum).
+  | { kind: 'reduceRequirement'; by: number };
 
 export interface CharacterAbility {
   id: string;
@@ -95,6 +118,12 @@ export interface CharacterAbility {
   cost: number;
   trigger: Requirement;
   effect: EffectSpec;
+  // Maximum stored charges. Charges accumulate from rolls but are clamped
+  // here. Range 1–10; defaults to 3 when omitted on legacy content.
+  maxCharges: number;
+  // Run-local upgrade overlay. Pushed onto by the draft and workbench
+  // events; consumed by `effectiveAbility` to derive the live ability.
+  upgrades: AbilityUpgrade[];
 }
 
 // Character passives are always-on traits that bend a core rule of the game,
@@ -103,13 +132,26 @@ export interface CharacterAbility {
 // (e.g. 'bonusD6OnPhaseFulfill' adds a fresh d6 inside playerFulfillTile).
 export type PassiveId =
   | 'bonusD6OnPhaseFulfill'
-  | 'noHeatRerollOnPhaseFulfill'
+  // AFTERSHOCK / TUMBLE: when the player fulfills a tile, the heat-intent
+  // resolution step is skipped on that turn — pending heat doesn't claim
+  // tiles as long as the player keeps claiming tiles each turn. Reserved
+  // heat dice return to the heat tray to reroll afresh. (Originally the
+  // Demolitionist's; renamed onto the Acrobat when the new Demolitionist
+  // took over the slot.)
+  | 'noHeatFulfillOnPhaseFulfill'
   | 'keepMomentumBetweenHeists'
   // PHANTOM: every phase fulfillment grafts two temporary ghost d4s onto
   // the pool. Ghosts evaporate on the *next* fulfillment (whether or not
   // they were used), so the player gets a one-roll surge and has to spend
   // them or watch them fade.
-  | 'ghostDiceOnPhaseFulfill';
+  | 'ghostDiceOnPhaseFulfill'
+  // DEMOLITIONIST (BREACH): heat-fulfilled phase tiles can be reclaimed by
+  // spending pool dice whose total sum >= the sum of heat dice that
+  // claimed the tile. Reclaiming converts the tile to playerFulfilled (so
+  // it's walkable again) but pays NO rewards — no momentum dice, no cache
+  // creds, no on-play effects, no character-passive bonuses. The heat sum
+  // is stamped onto the tile by resolveHeatIntents as `heatClaimSum`.
+  | 'reclaimHeatTilesByDiceSum';
 
 export interface CharacterPassive {
   id: PassiveId;
@@ -122,6 +164,10 @@ export interface CharacterPassive {
 export interface Character {
   id: string;
   name: string;
+  // Single-glyph emoji rendered as the player pawn on the heist grid.
+  // Should be visually distinct from any tile/event glyphs to avoid
+  // confusion at small sizes.
+  icon: string;
   startingDie: DieSize;
   passive: CharacterPassive;
   flavor?: string;
@@ -143,11 +189,58 @@ export interface HeistTarget {
 export type Screen =
   | 'title'
   | 'characterSelect'
+  | 'rigSelect'
   | 'map'
   | 'heist'
   | 'draft'
   | 'gameOver'
   | 'dev';
+
+// ───────────────────────────────────────────────────────────────────────────
+// Rigs — between character-select and the run, the player picks a Rig that
+// dictates the starting pool dice and starting creds. Most rigs are
+// achievement-locked; the default 'standard' rig is always available.
+// Stored on RunState so consumers (buildFreshHeist on the first node)
+// can seed the pool from the rig's spec.
+// ───────────────────────────────────────────────────────────────────────────
+export interface RigStartingDie {
+  size: DieSize;
+  // Source the dice are tagged with when added to the first heist's pool.
+  // 'ghost' is the typical interesting choice — surge then fade.
+  source: DieSource;
+  count: number;
+}
+
+export interface Rig {
+  id: string;
+  name: string;
+  flavor?: string;
+  icon?: string;
+  startingDice: RigStartingDie[];
+  startingGold: number;
+  // When set, the rig is locked until the player earns this achievement.
+  // Omit on the always-available default rig.
+  unlockAchievementId?: AchievementId;
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Achievements — meta-progression bookkeeping. Each achievement has a unique
+// id, a player-facing name + description, and is detected/awarded by the
+// game engine at the appropriate moment (typically post-outcome).
+// Persisted to localStorage in state/achievements.ts.
+// ───────────────────────────────────────────────────────────────────────────
+export type AchievementId =
+  | 'silenceRun'
+  | 'roadTested'
+  | 'endowment'
+  | 'doubleExposed';
+
+export interface Achievement {
+  id: AchievementId;
+  name: string;
+  description: string;
+  icon?: string;
+}
 
 export interface MapNode {
   index: number;
@@ -177,6 +270,11 @@ export type EventChoiceKind =
   | 'payAbility'      // sacrifice an owned ability → reward
   | 'opposeRoll'      // sum of selected pool dice ≥ sum of opposing roll
   | 'thresholdRoll'   // a single selected pool die's value ≥ `threshold`
+  // Pay creds, then pick an owned ability to receive a fixed AbilityUpgrade
+  // (specified by `upgrade` on the choice). Surfaced via WORKBENCH-style
+  // event tiles. The chosen ability id is passed through resolveEventChoice
+  // params.abilityId, identical in shape to payAbility's picker.
+  | 'upgradeAbility'
   | 'walkAway';
 
 export interface EventReward {
@@ -212,6 +310,10 @@ export interface EventChoice {
   opposingDice?: DieSize[];
   // thresholdRoll — minimum value the selected die must show.
   threshold?: number;
+  // upgradeAbility — the upgrade applied to the player-selected owned
+  // ability. The cost (in creds) is `creds`; the picker reuses the same
+  // params.abilityId shape used by payAbility.
+  upgrade?: AbilityUpgrade;
   // Outcome on success (or unconditional for non-roll choices).
   reward?: EventReward;
   // Outcome on failure (roll-based choices only). When omitted, a failed
@@ -251,6 +353,11 @@ export interface Tile {
   // when the player triggers the tile. Resolved choices flip the tile to
   // 'playerFulfilled' (treated as walkable terrain afterward).
   eventDef?: EventDef;
+  // Sum of the heat dice values that claimed this tile when it became
+  // heatFulfilled. Stamped by resolveHeatIntents. Used by the new
+  // Demolitionist's BREACH passive to gate reclaim attempts: the player
+  // must spend pool dice whose total >= this sum.
+  heatClaimSum?: number;
 }
 
 export interface Grid {
@@ -307,6 +414,12 @@ export interface AbilityImpactEvent {
   // Pool die ids the effect targeted. For batch fires this contains
   // every die that was hit; empty for non-targeted effects.
   impactedDieIds: string[];
+  // Pool die ids the effect actually rerolled (value changed via a fresh
+  // roll). Populated only by the four reroll effects (rerollHighest,
+  // rerollLowest, rerollAll, rerollSelected); empty otherwise. Drives
+  // a per-die shake animation in the UI matching the whole-pool roll
+  // jiggle, distinct from the impact glow on `impactedDieIds`.
+  rerolledDieIds: string[];
 }
 
 // Snapshot of a single ability gaining a charge from the most recent roll.
@@ -346,15 +459,40 @@ export interface HeistState {
   activeEvent: ActiveEvent | null;
 }
 
+// Legacy name — kept only as a thin alias around the "newAbility" branch
+// of DraftOption so any older callers that still pass `{ ability }` keep
+// compiling. Prefer DraftOption directly going forward.
 export interface AbilityDraftOption {
   ability: CharacterAbility;
 }
 
-// Kept as alias for back-compat with any callers still using the old name.
-export type DraftOption = AbilityDraftOption;
+// A single card the player sees on the between-heist draft screen. The
+// draft now mixes brand-new abilities with upgrade purchases for abilities
+// already owned. Each option is self-describing and is dispatched by
+// chooseDraft based on its `kind`.
+export type DraftOption =
+  | { kind: 'newAbility'; ability: CharacterAbility }
+  | {
+      kind: 'upgrade';
+      // Id of the owned ability the upgrade applies to.
+      abilityId: string;
+      // Whatever AbilityUpgrade is on offer — mutated onto the matching
+      // run.abilities[].upgrades[] when chosen.
+      upgrade: AbilityUpgrade;
+      // Cred cost; varies by upgrade kind.
+      cost: number;
+    };
 
 export interface RunState {
   character: Character;
+  // Id of the rig the player selected at the start of this run. Persists
+  // for the run's lifetime so e.g. the HUD or post-mortem can show the
+  // build the player committed to.
+  rigId: string;
+  // Pool dice the rig contributed. Consumed by buildFreshHeist on the
+  // FIRST heist (nodeIndex === 0) — they replace the default starter
+  // die. Cleared / ignored on later heists.
+  rigStartingDice: Die[];
   characterDie: DieSize;
   abilities: CharacterAbility[];
   // Charges accumulate every time a roll (rollDice or reroll) produces a
@@ -373,11 +511,16 @@ export interface RunState {
   nodeIndex: number;
   map: MapNode[];
   heist: HeistState | null;
-  draft: AbilityDraftOption[] | null;
+  draft: DraftOption[] | null;
   outcome?: 'won' | 'caught';
 }
 
 export interface GameState {
   screen: Screen;
   run: RunState | null;
+  // Set when CharacterSelect commits a character but the player hasn't
+  // yet picked a rig. The RigSelect screen reads this to show the
+  // chosen character + scope rigs accordingly. Cleared when the run
+  // starts or the player aborts back to title / character-select.
+  pendingCharacterId?: string;
 }

@@ -5,15 +5,19 @@ import {
   Die,
   EventChoice,
 } from '../../engine/types';
+import { GlitchButton } from './GlitchButton';
 import { GlitchTypewriter } from './GlitchTypewriter';
 import { DieGlyph } from './DieGlyph';
+import { DicePoolView } from './DicePoolView';
 
 interface Props {
   active: ActiveEvent;
   pool: Die[];
   // The current pool selection — sourced from gameStore.ui.selectedDiceIds.
-  // Pool dice are toggled via the existing sidebar DicePoolView (the modal's
-  // backdrop is pointer-events: none so the sidebar stays clickable).
+  // The sidebar DicePoolView remains interactive (the modal's backdrop is
+  // pointer-events: none) AND, for events that need dice, a duplicate
+  // DicePoolView renders inside the modal so the player doesn't have to
+  // hunt for the sidebar.
   selectedDiceIds: string[];
   abilities: CharacterAbility[];
   creds: number;
@@ -22,6 +26,10 @@ interface Props {
     params?: { dieIds?: string[]; abilityId?: string },
   ) => void;
   onClose: () => void;
+  // Toggle pool die selection — wired through to the gameStore action so
+  // clicks inside the modal-internal DicePoolView mirror writes the same
+  // selection state the sidebar reads from.
+  onToggleDie: (dieId: string) => void;
 }
 
 // Per-choice viability: whether the player meets the choice's prerequisites
@@ -77,6 +85,15 @@ function canCommit(
         return { ok: false, reason: `need ≥ ${threshold}` };
       return { ok: true };
     }
+    case 'upgradeAbility': {
+      const cost = choice.creds ?? 0;
+      if (ctx.creds < cost) return { ok: false, reason: `need ¢${cost}` };
+      if (ctx.abilities.length === 0)
+        return { ok: false, reason: 'no abilities to upgrade' };
+      if (!ctx.selectedAbilityId)
+        return { ok: false, reason: 'pick an ability to upgrade' };
+      return { ok: true };
+    }
     default:
       return { ok: false };
   }
@@ -90,6 +107,7 @@ export function EventModal({
   creds,
   onResolve,
   onClose,
+  onToggleDie,
 }: Props) {
   const [revealedDone, setRevealedDone] = useState(false);
   const [selectedAbilityId, setSelectedAbilityId] = useState<string | null>(
@@ -126,7 +144,7 @@ export function EventModal({
       onResolve(choice.id);
       return;
     }
-    if (choice.kind === 'payAbility') {
+    if (choice.kind === 'payAbility' || choice.kind === 'upgradeAbility') {
       onResolve(choice.id, { abilityId: selectedAbilityId ?? undefined });
       return;
     }
@@ -145,6 +163,8 @@ export function EventModal({
         return `Tap a pool die showing ${c.threshold ?? 0} or more.`;
       case 'payAbility':
         return 'Pick an ability to sacrifice — you lose it for the rest of the run.';
+      case 'upgradeAbility':
+        return 'Pick an ability to upgrade.';
       default:
         return null;
     }
@@ -156,6 +176,16 @@ export function EventModal({
   const playerSum = selectedDice.reduce(
     (acc, d) => acc + (d.value ?? 0),
     0,
+  );
+
+  // Show the inline pool mirror whenever the active event offers any
+  // choice that consumes / inspects dice. payCreds / payAbility / walkAway
+  // don't need it.
+  const needsDiceSelection = active.def.choices.some(
+    (c) =>
+      c.kind === 'payDie' ||
+      c.kind === 'opposeRoll' ||
+      c.kind === 'thresholdRoll',
   );
 
   return (
@@ -192,9 +222,14 @@ export function EventModal({
               ? opposing.reduce((acc, n) => acc + n, 0)
               : 0;
             const prompt = promptForChoice(choice);
-            // Hide payAbility entirely if the player has nothing to trade —
-            // there's no point in offering an unselectable option.
-            if (choice.kind === 'payAbility' && abilities.length === 0) {
+            // Hide payAbility / upgradeAbility entirely if the player has
+            // nothing to trade or upgrade — there's no point offering an
+            // unselectable option.
+            if (
+              (choice.kind === 'payAbility' ||
+                choice.kind === 'upgradeAbility') &&
+              abilities.length === 0
+            ) {
               return null;
             }
             return (
@@ -203,13 +238,13 @@ export function EventModal({
                 className={`event-choice${v.ok ? '' : ' event-choice--blocked'}`}
               >
                 <div className="event-choice-row">
-                  <button
+                  <GlitchButton
                     type="button"
                     className="event-choice-btn"
                     onClick={() => handleChoose(choice)}
                     disabled={!revealedDone || !v.ok}
+                    label={choice.label}
                   >
-                    <span className="event-choice-label">{choice.label}</span>
                     <span className="event-choice-chips">
                       {choice.costLabel && (
                         <span className="event-chip event-chip--cost">
@@ -222,7 +257,7 @@ export function EventModal({
                         </span>
                       )}
                     </span>
-                  </button>
+                  </GlitchButton>
                   {!v.ok && v.reason && (
                     <span className="event-choice-reason">{v.reason}</span>
                   )}
@@ -250,46 +285,71 @@ export function EventModal({
                   </div>
                 )}
 
-                {revealedDone && choice.kind === 'payAbility' && (
-                  <div className="event-ability-picker">
-                    {abilities.length === 0 ? (
-                      <span className="event-ability-empty">
-                        Nothing to trade.
-                      </span>
-                    ) : (
-                      abilities.map((a) => (
-                        <button
-                          key={a.id}
-                          type="button"
-                          className={`event-ability-pick${
-                            selectedAbilityId === a.id
-                              ? ' event-ability-pick--on'
-                              : ''
-                          }`}
-                          onClick={() =>
-                            setSelectedAbilityId((cur) =>
-                              cur === a.id ? null : a.id,
-                            )
-                          }
-                          title={a.text}
-                        >
-                          <span className="event-ability-icon" aria-hidden>
-                            {a.icon}
-                          </span>
-                          <span className="event-ability-name">{a.name}</span>
-                        </button>
-                      ))
-                    )}
-                  </div>
-                )}
+                {revealedDone &&
+                  (choice.kind === 'payAbility' ||
+                    choice.kind === 'upgradeAbility') && (
+                    <div className="event-ability-picker">
+                      {abilities.length === 0 ? (
+                        <span className="event-ability-empty">
+                          {choice.kind === 'payAbility'
+                            ? 'Nothing to trade.'
+                            : 'Nothing to upgrade.'}
+                        </span>
+                      ) : (
+                        abilities.map((a) => (
+                          <button
+                            key={a.id}
+                            type="button"
+                            className={`event-ability-pick${
+                              selectedAbilityId === a.id
+                                ? ' event-ability-pick--on'
+                                : ''
+                            }`}
+                            onClick={() =>
+                              setSelectedAbilityId((cur) =>
+                                cur === a.id ? null : a.id,
+                              )
+                            }
+                            title={a.text}
+                          >
+                            <span className="event-ability-icon" aria-hidden>
+                              {a.icon}
+                            </span>
+                            <span className="event-ability-name">{a.name}</span>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
 
-                {revealedDone && prompt && choice.kind !== 'payAbility' && (
-                  <div className="event-choice-hint">{prompt}</div>
-                )}
+                {revealedDone &&
+                  prompt &&
+                  choice.kind !== 'payAbility' &&
+                  choice.kind !== 'upgradeAbility' && (
+                    <div className="event-choice-hint">{prompt}</div>
+                  )}
               </li>
             );
           })}
         </ul>
+
+        {/* Inline pool mirror — only rendered when at least one choice
+            consumes pool dice. The selection state is shared with the
+            sidebar's DicePoolView (both read selectedDiceIds and call
+            the same onToggleDie action), so clicks here are
+            interchangeable with the sidebar — the goal is just to put
+            the dice next to the prompt so the player doesn't have to
+            hunt for them. */}
+        {needsDiceSelection && revealedDone && (
+          <div className="event-modal-pool">
+            <div className="event-modal-pool-label">YOUR POOL</div>
+            <DicePoolView
+              pool={pool}
+              selectedIds={selectedDiceIds}
+              onToggle={onToggleDie}
+            />
+          </div>
+        )}
       </div>
     </div>
   );

@@ -15,9 +15,12 @@ import {
 } from '../../state/contentRegistry';
 import {
   AbilityEditor,
+  CharacterEditor,
   EventEditor,
   PhaseCardEditor,
+  RigEditor,
   TargetEditor,
+  TutorialStepEditor,
 } from '../components/DevPanelEditors';
 import {
   getUnlockedCharacterIds,
@@ -25,19 +28,33 @@ import {
   subscribe as subscribeProgress,
   unlockAllCharacters,
 } from '../../state/progress';
-import { CHARACTERS } from '../../content/characters';
 import {
+  getUnlockedAchievementIds,
+  resetAchievements,
+  subscribe as subscribeAchievements,
+  unlockAllAchievements,
+} from '../../state/achievements';
+import { CHARACTERS } from '../../content/characters';
+import { ACHIEVEMENTS } from '../../content/achievements';
+import {
+  Character,
   CharacterAbility,
   EventDef,
   HeistTarget,
   PhaseCard,
+  Rig,
 } from '../../engine/types';
+import { TutorialStep } from '../../tutorial/steps';
+import { useTutorialStore } from '../../state/tutorialStore';
 
 const TABS: { kind: ContentKind; label: string }[] = [
   { kind: 'phase', label: 'PHASE CARDS' },
   { kind: 'ability', label: 'ABILITIES' },
   { kind: 'target', label: 'TARGETS' },
   { kind: 'event', label: 'EVENTS' },
+  { kind: 'tutorial', label: 'TUTORIAL' },
+  { kind: 'character', label: 'CHARACTERS' },
+  { kind: 'rig', label: 'RIGS' },
 ];
 
 // Display label for each item in the left list — falls back to id when
@@ -91,6 +108,7 @@ function FORMATTED_BASE_JSON(item: Record<string, unknown>): string {
 
 export function DevPanelScreen() {
   const setScreen = useGameStore((s) => s.setScreen);
+  const resetTutorialSeen = useTutorialStore((s) => s.resetAll);
 
   const [tab, setTab] = useState<ContentKind>('phase');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -98,6 +116,13 @@ export function DevPanelScreen() {
   // converts it to a per-id patch via diffPatch.
   const [draft, setDraft] = useState<Record<string, unknown> | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  // Click-to-rename: when true, the detail header swaps the <h2> for an
+  // <input> bound to the same draft name/title field. Commits to the
+  // draft on every keystroke (so Save / Revert work as usual); Enter
+  // and blur leave rename mode, Escape leaves AND restores the prior
+  // value.
+  const [renaming, setRenaming] = useState(false);
+  const [renameRevertTo, setRenameRevertTo] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Re-render when the registry changes (Save / Revert / Import / Reset).
@@ -106,6 +131,8 @@ export function DevPanelScreen() {
   // Re-render when the progress store changes (unlock-all / reset-progress
   // debug buttons) so the unlocked-character chips below stay in sync.
   useEffect(() => subscribeProgress(() => forceTick((n) => n + 1)), []);
+  // Same for the achievements store.
+  useEffect(() => subscribeAchievements(() => forceTick((n) => n + 1)), []);
 
   const baseList = getBase(tab);
   const mergedList = getMerged(tab);
@@ -142,6 +169,9 @@ export function DevPanelScreen() {
       return;
     }
     setDraft(JSON.parse(JSON.stringify(merged)));
+    // Switching items always cancels rename mode — otherwise the input
+    // could carry over to a different item's name field.
+    setRenaming(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId, tab]);
 
@@ -237,6 +267,9 @@ export function DevPanelScreen() {
     ability: patchCount('ability'),
     target: patchCount('target'),
     event: patchCount('event'),
+    tutorial: patchCount('tutorial'),
+    character: patchCount('character'),
+    rig: patchCount('rig'),
   };
 
   // Pick the right form editor for the active tab. Each editor receives
@@ -271,6 +304,27 @@ export function DevPanelScreen() {
         return (
           <EventEditor
             value={draft as unknown as EventDef}
+            onChange={(v) => onChange(v as unknown as Record<string, unknown>)}
+          />
+        );
+      case 'tutorial':
+        return (
+          <TutorialStepEditor
+            value={draft as unknown as TutorialStep}
+            onChange={(v) => onChange(v as unknown as Record<string, unknown>)}
+          />
+        );
+      case 'character':
+        return (
+          <CharacterEditor
+            value={draft as unknown as Character}
+            onChange={(v) => onChange(v as unknown as Record<string, unknown>)}
+          />
+        );
+      case 'rig':
+        return (
+          <RigEditor
+            value={draft as unknown as Rig}
             onChange={(v) => onChange(v as unknown as Record<string, unknown>)}
           />
         );
@@ -371,6 +425,55 @@ export function DevPanelScreen() {
             RESET PROGRESS
           </button>
         </div>
+
+        <div className="dev-panel-debug-row">
+          <span className="dev-panel-debug-label">
+            Achievements: {getUnlockedAchievementIds().length}/{ACHIEVEMENTS.length}
+            {' '}
+            <span className="muted">
+              ({getUnlockedAchievementIds().join(', ') || 'none'})
+            </span>
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              unlockAllAchievements();
+              setStatusMessage('All achievements unlocked.');
+            }}
+          >
+            UNLOCK ALL ACHIEVEMENTS
+          </button>
+          <button
+            type="button"
+            className="danger-ish"
+            onClick={() => {
+              const ok = window.confirm(
+                'Wipe achievement progress? Locked rigs will become inaccessible again.',
+              );
+              if (!ok) return;
+              resetAchievements();
+              setStatusMessage('Achievements reset.');
+            }}
+          >
+            RESET ACHIEVEMENTS
+          </button>
+        </div>
+
+        <div className="dev-panel-debug-row">
+          <span className="dev-panel-debug-label">
+            Tutorial-seen state controls whether each step ever fires again.
+          </span>
+          <button
+            type="button"
+            className="danger-ish"
+            onClick={() => {
+              resetTutorialSeen();
+              setStatusMessage('Tutorial seen state cleared.');
+            }}
+          >
+            RESET TUTORIAL SEEN
+          </button>
+        </div>
       </div>
 
       <div className="dev-panel-body">
@@ -415,7 +518,66 @@ export function DevPanelScreen() {
             <>
               <div className="dev-detail-head">
                 <div>
-                  <h2>{labelFor(mergedSelected)}</h2>
+                  {(() => {
+                    // Tutorial steps have no name/title and their id is the
+                    // stable lookup key — skip the rename treatment entirely.
+                    if (tab === 'tutorial') {
+                      return (
+                        <h2 className="dev-detail-name">
+                          {String(mergedSelected.id)}
+                        </h2>
+                      );
+                    }
+                    // Field that drives the displayed name — events use
+                    // `title`, everything else uses `name`. Same key is
+                    // what the rename input writes back to the draft.
+                    const renameField = tab === 'event' ? 'title' : 'name';
+                    const currentName = String(draft[renameField] ?? '');
+                    if (renaming) {
+                      return (
+                        <input
+                          autoFocus
+                          className="dev-detail-rename"
+                          value={currentName}
+                          onChange={(e) =>
+                            setDraft({
+                              ...draft,
+                              [renameField]: e.target.value,
+                            })
+                          }
+                          onBlur={() => setRenaming(false)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              setRenaming(false);
+                              (e.target as HTMLInputElement).blur();
+                            } else if (e.key === 'Escape') {
+                              setDraft({
+                                ...draft,
+                                [renameField]: renameRevertTo,
+                              });
+                              setRenaming(false);
+                              (e.target as HTMLInputElement).blur();
+                            }
+                          }}
+                          onFocus={(e) =>
+                            (e.target as HTMLInputElement).select()
+                          }
+                        />
+                      );
+                    }
+                    return (
+                      <h2
+                        className="dev-detail-name"
+                        onClick={() => {
+                          setRenameRevertTo(currentName);
+                          setRenaming(true);
+                        }}
+                        title="Click to rename"
+                      >
+                        {currentName || labelFor(mergedSelected)}
+                      </h2>
+                    );
+                  })()}
                   <span className="dev-detail-id">
                     {String(mergedSelected.id)}
                   </span>

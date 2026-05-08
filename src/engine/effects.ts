@@ -1,4 +1,11 @@
-import { Die, DieSize, EffectSpec } from './types';
+import {
+  AbilityUpgrade,
+  CharacterAbility,
+  Die,
+  DieSize,
+  EffectSpec,
+  Requirement,
+} from './types';
 import { createDie, rollValue } from './dice';
 
 export interface EffectContext {
@@ -12,6 +19,12 @@ export interface EffectResult {
   pool: Die[];
   heat: Die[];
   log: string[];
+  // Pool die ids whose values were rerolled by this effect. Populated only
+  // by the four reroll handlers (rerollHighest, rerollLowest, rerollAll,
+  // rerollSelected). Drives the per-die shake animation in the UI so the
+  // player sees the same jiggle they get on a fresh whole-pool roll.
+  // Undefined for non-reroll handlers.
+  rerolledIds?: string[];
 }
 
 type EffectHandler = (ctx: EffectContext, spec: EffectSpec) => EffectResult;
@@ -48,7 +61,12 @@ const handlers: Record<string, EffectHandler> = {
     const target = ctx.pool[bestIdx];
     const rerolled = { ...target, value: rollValue(target.size) };
     const pool = ctx.pool.map((d, i) => (i === bestIdx ? rerolled : d));
-    return { pool, heat: ctx.heat, log: [`Rerolled highest: ${target.value} → ${rerolled.value}`] };
+    return {
+      pool,
+      heat: ctx.heat,
+      log: [`Rerolled highest: ${target.value} → ${rerolled.value}`],
+      rerolledIds: [target.id],
+    };
   },
 
   rerollLowest: (ctx) => {
@@ -65,17 +83,32 @@ const handlers: Record<string, EffectHandler> = {
     const target = ctx.pool[bestIdx];
     const rerolled = { ...target, value: rollValue(target.size) };
     const pool = ctx.pool.map((d, i) => (i === bestIdx ? rerolled : d));
-    return { pool, heat: ctx.heat, log: [`Rerolled lowest: ${target.value} → ${rerolled.value}`] };
+    return {
+      pool,
+      heat: ctx.heat,
+      log: [`Rerolled lowest: ${target.value} → ${rerolled.value}`],
+      rerolledIds: [target.id],
+    };
   },
 
   rerollAll: (ctx) => {
-    return { pool: rerollDice(ctx.pool), heat: ctx.heat, log: [`Rerolled all ${ctx.pool.length} dice`] };
+    return {
+      pool: rerollDice(ctx.pool),
+      heat: ctx.heat,
+      log: [`Rerolled all ${ctx.pool.length} dice`],
+      rerolledIds: ctx.pool.map((d) => d.id),
+    };
   },
 
   rerollSelected: (ctx) => {
     const selectedSet = new Set(ctx.selectedDiceIds);
     const pool = ctx.pool.map((d) => (selectedSet.has(d.id) ? { ...d, value: rollValue(d.size) } : d));
-    return { pool, heat: ctx.heat, log: [`Rerolled ${ctx.selectedDiceIds.length} dice`] };
+    return {
+      pool,
+      heat: ctx.heat,
+      log: [`Rerolled ${ctx.selectedDiceIds.length} dice`],
+      rerolledIds: ctx.pool.filter((d) => selectedSet.has(d.id)).map((d) => d.id),
+    };
   },
 
   setDieToMax: (ctx) => {
@@ -101,7 +134,9 @@ const handlers: Record<string, EffectHandler> = {
   },
 
   removeOnes: (ctx) => {
-    const pool = ctx.pool.filter((d) => d.value !== 1);
+    // Character dice are no longer special — they're consumed like any
+    // other die when removeOnes targets a 1.
+    const pool: Die[] = ctx.pool.filter((d) => d.value !== 1);
     const removed = ctx.pool.length - pool.length;
     return { pool, heat: ctx.heat, log: [`Removed ${removed} dice showing 1`] };
   },
@@ -140,20 +175,139 @@ export function applyEffect(spec: EffectSpec, ctx: EffectContext): EffectResult 
 /**
  * Minimum number of pool dice an effect needs the player to have selected as
  * targets before it can be applied. 0 means the effect doesn't require any
- * target selection.
+ * target selection. The optional `bonus` is added on top of the base minimum
+ * (used by the `extraTarget` upgrade, which lets a single-die effect target
+ * multiple dice in one activation). When the base minimum is 0 the effect
+ * truly takes no targets — the bonus is ignored, since adding "+1 target"
+ * to e.g. `rerollAll` is meaningless.
  */
-export function effectTargetMin(spec: EffectSpec): number {
+export function effectTargetMin(spec: EffectSpec, bonus = 0): number {
+  let base: number;
   switch (spec.id) {
     case 'setDieToMax':
     case 'setDieToValue':
     case 'duplicateDie':
     case 'rerollSelected':
-      return 1;
+      base = 1;
+      break;
     case 'setTwoDiceToOne':
-      return 2;
+      base = 2;
+      break;
     default:
-      return 0;
+      base = 0;
+  }
+  if (base === 0) return 0;
+  return base + Math.max(0, bonus);
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Ability-upgrade resolution
+// ───────────────────────────────────────────────────────────────────────────
+//
+// Upgrades live on each owned ability's `upgrades[]` array. The base
+// CharacterAbility data in content/* stays canonical; `effectiveAbility`
+// returns a derived ability with maxCharges adjusted and trigger reduced.
+// All gameplay code (charge cap, charge detection, UI display, target
+// minimum) reads through this helper so upgrades apply transparently.
+
+const MAX_CHARGE_CAP = 10;
+
+/**
+ * Reduce a Requirement by `by`, clamped at sane minimums per kind.
+ * - xOfAKind: count -= by, min 2 (a "pair" is the floor).
+ * - straight: length -= by, min 2 (two-in-a-row floor).
+ * - evens / odds / maxes: count -= by, min 1.
+ * - sum: value -= by, min 1 — the dice constraint (min/max/exactDice) is
+ *   left untouched; this reduces the threshold, not the dice budget.
+ */
+export function applyRequirementReductions(
+  req: Requirement,
+  by: number,
+): Requirement {
+  if (by <= 0) return req;
+  switch (req.kind) {
+    case 'xOfAKind':
+      return { ...req, count: Math.max(2, req.count - by) };
+    case 'straight':
+      return { ...req, length: Math.max(2, req.length - by) };
+    case 'evens':
+    case 'odds':
+    case 'maxes':
+      return { ...req, count: Math.max(1, req.count - by) };
+    case 'sum':
+      return { ...req, value: Math.max(1, req.value - by) };
   }
 }
 
-export { byId, without };
+/**
+ * Sum the `by` totals for a given upgrade kind. Used to fold multiple
+ * upgrades of the same kind into a single net adjustment.
+ */
+function sumUpgradeBy(
+  upgrades: AbilityUpgrade[],
+  kind: 'increaseMaxCharges' | 'extraTarget' | 'reduceRequirement',
+): number {
+  let total = 0;
+  for (const u of upgrades) {
+    if (u.kind === kind) total += u.by;
+  }
+  return total;
+}
+
+/**
+ * Returns true if any upgrade in the list matches the given marker kind.
+ */
+export function hasUpgrade(
+  upgrades: AbilityUpgrade[] | undefined,
+  kind: AbilityUpgrade['kind'],
+): boolean {
+  if (!upgrades) return false;
+  return upgrades.some((u) => u.kind === kind);
+}
+
+/**
+ * Single point of upgrade resolution. Returns a new CharacterAbility with:
+ *   • `maxCharges` bumped by every increaseMaxCharges, capped at 10.
+ *   • `trigger` reduced by every reduceRequirement upgrade (cumulative).
+ * Other upgrades (`extraTarget`, `startWithCharge`) don't change the shape
+ * of the ability — they're consumed at their respective use sites
+ * (effectTargetMin and heist init).
+ *
+ * Upgrades remain on the returned ability so callers that need to inspect
+ * markers (e.g. `hasUpgrade(eff.upgrades, 'startWithCharge')`) can do so.
+ */
+export function effectiveAbility(a: CharacterAbility): CharacterAbility {
+  const upgrades = a.upgrades ?? [];
+  const baseMax = a.maxCharges ?? 3;
+  const bump = sumUpgradeBy(upgrades, 'increaseMaxCharges');
+  const maxCharges = Math.min(MAX_CHARGE_CAP, Math.max(1, baseMax + bump));
+
+  const reduceBy = sumUpgradeBy(upgrades, 'reduceRequirement');
+  const trigger =
+    reduceBy > 0 ? applyRequirementReductions(a.trigger, reduceBy) : a.trigger;
+
+  return { ...a, maxCharges, trigger, upgrades };
+}
+
+/**
+ * Like `effectiveAbility` but only the trigger — handy when the caller
+ * just needs to inspect the upgrade-resolved trigger without rebuilding
+ * the whole ability.
+ */
+export function effectiveTrigger(a: CharacterAbility): Requirement {
+  const reduceBy = sumUpgradeBy(a.upgrades ?? [], 'reduceRequirement');
+  if (reduceBy <= 0) return a.trigger;
+  return applyRequirementReductions(a.trigger, reduceBy);
+}
+
+/**
+ * Effective minimum target count for an ability, including any
+ * extraTarget upgrades. Mirrors effectTargetMin but folds in the upgrade
+ * bonus so the UI / activation code only needs the ability handle.
+ */
+export function abilityTargetMin(a: CharacterAbility): number {
+  const bonus = sumUpgradeBy(a.upgrades ?? [], 'extraTarget');
+  return effectTargetMin(a.effect, bonus);
+}
+
+export { byId, without, MAX_CHARGE_CAP };

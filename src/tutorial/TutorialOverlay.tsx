@@ -1,7 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useGameStore } from '../state/gameStore';
 import { useTutorialStore } from '../state/tutorialStore';
-import { STEPS, TutorialContext, TutorialStep } from './steps';
+import {
+  getTutorialSteps,
+  subscribe as subscribeRegistry,
+} from '../state/contentRegistry';
+import { TutorialContext, TutorialStep } from './steps';
 
 interface AnchorRect {
   top: number;
@@ -43,10 +47,11 @@ function clampToViewport(rect: AnchorRect): AnchorRect {
 // prevents the centered-modal fallback from firing for steps that are
 // supposed to point at something specific (e.g. the off-screen compass).
 function pickStep(
+  steps: readonly TutorialStep[],
   ctx: TutorialContext,
   isSeen: (id: string) => boolean,
 ): TutorialStep | null {
-  for (const step of STEPS) {
+  for (const step of steps) {
     if (step.screen !== ctx.screen) continue;
     if (isSeen(step.id)) continue;
     if (!step.shouldShow(ctx)) continue;
@@ -80,21 +85,33 @@ export function TutorialOverlay() {
     return () => window.clearInterval(t);
   }, []);
 
+  // Re-render when the content registry changes (dev-panel edits to
+  // tutorial-step text / mode / anchor) so the active step picks up
+  // edits without a page reload.
+  useEffect(() => subscribeRegistry(() => setTick((n) => (n + 1) % 1_000_000)), []);
+
   // Active step is derived inline. No state, no setState-in-effect chain —
   // the one we used to have triggered React error #185 (max update depth)
   // when an action changed `run` and `heist` references on the same tick.
   const ctx: TutorialContext = { screen, run, heist };
-  const step = pickStep(ctx, isSeen);
+  const steps = getTutorialSteps();
+  const step = pickStep(steps, ctx, isSeen);
 
   const [anchorRect, setAnchorRect] = useState<AnchorRect | null>(null);
 
   // Measure / re-measure the anchor element while the step is active.
+  // Depend on the primitive id+anchor (not the step object) — registry
+  // edits regenerate the step array each render, and a `[step]` dep
+  // would re-fire this effect every render → setAnchorRect → render
+  // → new step ref → loop (React error #185).
+  const stepAnchor = step?.anchor;
+  const stepId = step?.id;
   useLayoutEffect(() => {
     if (!step) {
       setAnchorRect(null);
       return;
     }
-    const measure = () => setAnchorRect(getAnchorRect(step.anchor));
+    const measure = () => setAnchorRect(getAnchorRect(stepAnchor));
     measure();
     const t = window.setInterval(measure, POLL_MS);
     window.addEventListener('resize', measure);
@@ -102,7 +119,8 @@ export function TutorialOverlay() {
       window.clearInterval(t);
       window.removeEventListener('resize', measure);
     };
-  }, [step]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stepId, stepAnchor]);
 
   // When a step transitions from active to inactive without being explicitly
   // dismissed (i.e. its shouldShow gate flipped false because the prompted
@@ -115,7 +133,7 @@ export function TutorialOverlay() {
     const prev = prevActiveIdRef.current;
     const curr = step?.id ?? null;
     if (prev && prev !== curr) {
-      const prevStep = STEPS.find((s) => s.id === prev);
+      const prevStep = steps.find((s) => s.id === prev);
       // Only mark seen if the gate is now false (so we don't mark steps
       // that were just temporarily skipped because the anchor was missing).
       if (prevStep && !isSeen(prev) && !prevStep.shouldShow({ screen, run, heist })) {

@@ -1,5 +1,5 @@
 import { CharacterAbility, Requirement } from '../../engine/types';
-import { effectTargetMin } from '../../engine/effects';
+import { abilityTargetMin, effectiveAbility } from '../../engine/effects';
 import { withDieGlyphs } from './DieGlyph';
 
 // Human-readable trigger description. Preferred over describeRequirement()
@@ -114,7 +114,7 @@ interface RowProps {
 }
 
 function AbilityRow({
-  ability: a,
+  ability: rawA,
   count,
   onActivate,
   isWaiting,
@@ -122,11 +122,16 @@ function AbilityRow({
   disabled,
   popping,
 }: RowProps) {
+  // Resolve any owned upgrades — caps maxCharges, reduces the trigger.
+  // The base data stays untouched in run.abilities; this is just the
+  // display overlay.
+  const a = effectiveAbility(rawA);
 
   const charged = count > 0;
   const canActivate = isWaiting || (!disabled && charged);
-  const targetMin = effectTargetMin(a.effect);
+  const targetMin = abilityTargetMin(rawA);
   const targetsNeeded = Math.max(0, targetMin - selectedDiceCount);
+  const maxCharges = a.maxCharges;
 
   return (
     <div
@@ -143,9 +148,9 @@ function AbilityRow({
           className={`hg-ability-charges ${charged ? 'hg-ability-charges--on' : ''} ${
             popping ? 'hg-ability-charges--popping' : ''
           }`}
-          title={`${count} charge${count === 1 ? '' : 's'}`}
+          title={`${count} / ${maxCharges} charge${maxCharges === 1 ? '' : 's'}`}
         >
-          {count > 0 ? `⚡${count}` : '—'}
+          {`⚡${count}/${maxCharges}`}
         </span>
       </div>
 

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useGameStore, TOTAL_NODES } from '../../state/gameStore';
 import { HeatIntent, PlayerFulfillEvent, Tile } from '../../engine/types';
 import { findSatisfyingSubset, isSubsetSatisfying } from '../../engine/requirements';
-import { effectTargetMin } from '../../engine/effects';
+import { abilityTargetMin } from '../../engine/effects';
 import { GridView } from '../components/GridView';
 import { DicePoolView } from '../components/DicePoolView';
 import { HeatTrayView } from '../components/HeatTrayView';
@@ -25,7 +25,22 @@ function isUnfulfilledRevealed(t: Tile): boolean {
   return t.state === 'revealed' && !!t.card;
 }
 
+// Public entry point. The body lives in HeistScreenInner; this thin
+// wrapper exists purely to gate on `run.heist` being non-null with a
+// SINGLE hook before any conditional return. Why: SceneTransition keeps
+// the old screen mounted through its 200ms exit phase. When the player
+// wins and proceedFromOutcome sets `heist: null` (in advance of the
+// store screen flipping to 'draft'), this component would otherwise
+// re-render with a different hook count and crash with "Rendered fewer
+// hooks than expected." Splitting the early return out onto its own
+// component keeps the inner's hook list stable across its lifetime.
 export function HeistScreen() {
+  const hasHeist = useGameStore((s) => !!s.run?.heist);
+  if (!hasHeist) return null;
+  return <HeistScreenInner />;
+}
+
+function HeistScreenInner() {
   const run = useGameStore((s) => s.run);
   const ui = useGameStore((s) => s.ui);
   const toggleDieSelection = useGameStore((s) => s.toggleDieSelection);
@@ -40,6 +55,9 @@ export function HeistScreen() {
   const closeEvent = useGameStore((s) => s.closeEvent);
   const proceedFromOutcome = useGameStore((s) => s.proceedFromOutcome);
 
+  // Outer gates on heist availability; this guard is for TS narrowing
+  // and as a defensive null-check. If it ever fires, outer will unmount
+  // us on the next render — render nothing in the meantime.
   if (!run?.heist) return null;
   const { heist } = run;
   const outcome = heist.outcome;
@@ -75,7 +93,7 @@ export function HeistScreen() {
       }
       const ability = run.abilities.find((a) => a.id === abilityId);
       if (!ability) return;
-      const min = effectTargetMin(ability.effect);
+      const min = abilityTargetMin(ability);
       const currentSelection = run.heist
         ? run.heist.pool.filter((d) => ui.selectedDiceIds.includes(d.id))
         : [];
@@ -110,7 +128,7 @@ export function HeistScreen() {
       setWaitingAbilityId(null);
       return;
     }
-    const min = effectTargetMin(ability.effect);
+    const min = abilityTargetMin(ability);
     if (selectedDice.length >= min) {
       activateAbility(waitingAbilityId);
       setWaitingAbilityId(null);
@@ -123,7 +141,7 @@ export function HeistScreen() {
   const onHoverChange = useCallback((t: Tile | null) => setHoveredTile(t), []);
 
   const { previewConsumedIds, previewGainedSizes } = useMemo(() => {
-    if (!hoveredTile || !hoveredTile.card || hoveredTile.state !== 'revealed') {
+    if (!hoveredTile || !hoveredTile.card) {
       return { previewConsumedIds: undefined, previewGainedSizes: undefined };
     }
     // Only preview if the tile is actually fulfillable right now:
@@ -132,6 +150,49 @@ export function HeistScreen() {
     const dc = Math.abs(hoveredTile.pos.col - heist.player.col);
     const adjacent = dr <= 1 && dc <= 1 && (dr + dc) > 0;
     if (!adjacent) return { previewConsumedIds: undefined, previewGainedSizes: undefined };
+
+    // Demolitionist BREACH — heat-fulfilled tile preview. Highest-value
+    // dice cumulating until they reach heatClaimSum, mirroring the
+    // store's auto-pick.
+    if (
+      hoveredTile.state === 'heatFulfilled' &&
+      hoveredTile.kind !== 'target' &&
+      hoveredTile.heatClaimSum !== undefined &&
+      run.character.passive.id === 'reclaimHeatTilesByDiceSum'
+    ) {
+      const minSum = hoveredTile.heatClaimSum;
+      const sumOf = (ds: { value: number | null }[]) =>
+        ds.reduce((a, d) => a + (d.value ?? 0), 0);
+      let consumed: { id: string }[] | null = null;
+      if (selectedDice.length > 0 && sumOf(selectedDice) >= minSum) {
+        consumed = selectedDice;
+      } else if (selectedDice.length === 0) {
+        const rolled = heist.pool.filter((d) => d.value !== null);
+        const sorted = [...rolled].sort(
+          (a, b) => (b.value ?? 0) - (a.value ?? 0),
+        );
+        const out: typeof rolled = [];
+        let acc = 0;
+        for (const d of sorted) {
+          if (acc >= minSum) break;
+          out.push(d);
+          acc += d.value ?? 0;
+        }
+        if (acc >= minSum) consumed = out;
+      }
+      if (!consumed) {
+        return { previewConsumedIds: undefined, previewGainedSizes: undefined };
+      }
+      return {
+        previewConsumedIds: new Set(consumed.map((d) => d.id)),
+        // No rewards on breach.
+        previewGainedSizes: [],
+      };
+    }
+
+    if (hoveredTile.state !== 'revealed') {
+      return { previewConsumedIds: undefined, previewGainedSizes: undefined };
+    }
 
     const req = hoveredTile.card.requirement;
     let consumed: { id: string }[] | null = null;
@@ -148,7 +209,7 @@ export function HeistScreen() {
       previewConsumedIds: new Set(consumed.map((d) => d.id)),
       previewGainedSizes: hoveredTile.card.momentumDice,
     };
-  }, [hoveredTile, selectedDice, heist.pool, heist.player.row, heist.player.col]);
+  }, [hoveredTile, selectedDice, heist.pool, heist.player.row, heist.player.col, run.character.passive.id]);
 
   const onTileClick = (tile: Tile) => {
     if (isOver) return;
@@ -162,6 +223,18 @@ export function HeistScreen() {
     // Revealed-unfulfilled tile: fulfill (store auto-picks dice if none selected,
     // and also moves the player onto the tile on success).
     if (isUnfulfilledRevealed(tile)) {
+      playerFulfillTile(tile.id);
+      return;
+    }
+    // Demolitionist BREACH — heat-fulfilled non-target tiles are also a
+    // valid playerFulfillTile target when the active passive matches.
+    // The store branches on its own; we just dispatch.
+    if (
+      tile.state === 'heatFulfilled' &&
+      tile.kind !== 'target' &&
+      tile.heatClaimSum !== undefined &&
+      run.character.passive.id === 'reclaimHeatTilesByDiceSum'
+    ) {
       playerFulfillTile(tile.id);
       return;
     }
@@ -489,18 +562,33 @@ export function HeistScreen() {
   // beat. We watch the lastAbilityImpact identity and hold the impacted
   // ids in local state for ~750ms.
   const ABILITY_IMPACT_MS = 750;
+  // Reroll-shake duration mirrors the whole-pool roll jiggle (~700ms in
+  // DicePoolView). Kept independent of ABILITY_IMPACT_MS because impact
+  // (glow/grow) and reroll (shake) can compose on different dice and
+  // shouldn't share a timer.
+  const ABILITY_REROLL_MS = 700;
   const [impactedDieIds, setImpactedDieIds] = useState<Set<string>>(new Set());
+  const [rerollingDieIds, setRerollingDieIds] = useState<Set<string>>(new Set());
   const lastImpactRef = useRef<unknown>(null);
   useEffect(() => {
     const ev = heist.lastAbilityImpact;
     if (!ev || ev === lastImpactRef.current) return;
     lastImpactRef.current = ev;
-    if (ev.impactedDieIds.length === 0) return;
-    setImpactedDieIds(new Set(ev.impactedDieIds));
-    const t = window.setTimeout(() => {
-      setImpactedDieIds(new Set());
-    }, ABILITY_IMPACT_MS);
-    return () => window.clearTimeout(t);
+    const timers: number[] = [];
+    if (ev.impactedDieIds.length > 0) {
+      setImpactedDieIds(new Set(ev.impactedDieIds));
+      timers.push(
+        window.setTimeout(() => setImpactedDieIds(new Set()), ABILITY_IMPACT_MS),
+      );
+    }
+    if (ev.rerolledDieIds.length > 0) {
+      setRerollingDieIds(new Set(ev.rerolledDieIds));
+      timers.push(
+        window.setTimeout(() => setRerollingDieIds(new Set()), ABILITY_REROLL_MS),
+      );
+    }
+    if (timers.length === 0) return;
+    return () => timers.forEach((t) => window.clearTimeout(t));
   }, [heist.lastAbilityImpact]);
 
   return (
@@ -592,6 +680,7 @@ export function HeistScreen() {
             rollNonce={rollNonce}
             highlightedDieIds={highlightedDieIds}
             impactedDieIds={impactedDieIds}
+            rerollingDieIds={rerollingDieIds}
           />
         </section>
 
@@ -675,6 +764,7 @@ export function HeistScreen() {
           creds={run.creds}
           onResolve={resolveEventChoice}
           onClose={closeEvent}
+          onToggleDie={toggleDieSelection}
         />
       )}
     </div>

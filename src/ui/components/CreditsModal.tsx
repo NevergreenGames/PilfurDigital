@@ -42,7 +42,11 @@ export function CreditsModal() {
           <p>
             <strong>Pilfur</strong> — a small heist-themed dice roguelike.
           </p>
-          <p className="muted">Design, code, and visual direction by the Pilfur team.</p>
+          <p>
+            Designed by <span className="credits-name">RATH</span>
+            <span className="muted"> — </span>
+            <span className="credits-studio">NEVERGREEN GAMES</span>
+          </p>
           <p className="muted">
             Music tracks (when present) are sourced from public-domain and
             CC-licensed libraries. See <code>audio/RECOMMENDED.md</code> in

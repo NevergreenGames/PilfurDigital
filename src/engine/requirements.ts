@@ -84,11 +84,16 @@ export function findSumSubset(
   const n = rolled.length;
   let best: Die[] | null = null;
   let bestSum = 0;
+  let bestGhostCount = 0;
 
-  // Prefer the fewest dice possible (the player wants to spend as little as
-  // they can). Tiebreaker: leave high-value dice in the pool for later —
-  // for gte/gt/eq use the subset with the smallest sum; for lt/lte use the
-  // one with the largest sum (uses up lower-value dice first).
+  // Selection priority among satisfying subsets:
+  //   1. Fewest dice possible (the player wants to spend as little as they can).
+  //   2. At equal size, MORE ghost dice — they evaporate on the next
+  //      fulfillment regardless, so spending them is free, and the player
+  //      expects ghosts to be consumed before they fade.
+  //   3. At equal size + ghost-count, leave high-value dice in the pool for
+  //      later — gte/gt/eq prefer the smallest sum, lt/lte prefer the largest
+  //      (uses up lower-value dice first).
   const tiebreakPreferLower = op !== 'lt' && op !== 'lte';
   const filterActive = !!mustIncludeIds && mustIncludeIds.size > 0;
 
@@ -96,11 +101,13 @@ export function findSumSubset(
     const subset: Die[] = [];
     let s = 0;
     let hasMust = !filterActive;
+    let ghostCount = 0;
     for (let i = 0; i < n; i += 1) {
       if (mask & (1 << i)) {
         subset.push(rolled[i]);
         s += rolled[i].value ?? 0;
         if (filterActive && mustIncludeIds!.has(rolled[i].id)) hasMust = true;
+        if (rolled[i].source === 'ghost') ghostCount += 1;
       }
     }
     if (subset.length < minDice) continue;
@@ -111,13 +118,23 @@ export function findSumSubset(
     if (!best || subset.length < best.length) {
       best = subset;
       bestSum = s;
+      bestGhostCount = ghostCount;
       continue;
     }
     if (subset.length === best.length) {
-      const better = tiebreakPreferLower ? s < bestSum : s > bestSum;
-      if (better) {
+      if (ghostCount > bestGhostCount) {
         best = subset;
         bestSum = s;
+        bestGhostCount = ghostCount;
+        continue;
+      }
+      if (ghostCount === bestGhostCount) {
+        const better = tiebreakPreferLower ? s < bestSum : s > bestSum;
+        if (better) {
+          best = subset;
+          bestSum = s;
+          bestGhostCount = ghostCount;
+        }
       }
     }
   }

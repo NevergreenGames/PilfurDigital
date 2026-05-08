@@ -60,6 +60,9 @@ interface GlitchTypewriterProps {
   text: string;
   // ms between successive words appearing.
   perWordMs?: number;
+  // ms to wait BEFORE the first word starts revealing. Lets callers stage
+  // a glitch entrance to land in sync with a stagger or scene enter.
+  delayMs?: number;
   // Fires once after the final word has settled.
   onDone?: () => void;
 }
@@ -67,6 +70,7 @@ interface GlitchTypewriterProps {
 export function GlitchTypewriter({
   text,
   perWordMs = 100,
+  delayMs = 0,
   onDone,
 }: GlitchTypewriterProps) {
   // Preserve original whitespace by splitting into [word, gap, word, gap, ...].
@@ -82,9 +86,11 @@ export function GlitchTypewriter({
       if (onDone) onDone();
       return;
     }
-    const t = window.setTimeout(() => setRevealed((n) => n + 1), perWordMs);
+    // First reveal honors `delayMs`; subsequent reveals tick at `perWordMs`.
+    const wait = revealed === 0 ? delayMs : perWordMs;
+    const t = window.setTimeout(() => setRevealed((n) => n + 1), wait);
     return () => window.clearTimeout(t);
-  }, [revealed, wordCount, perWordMs, onDone]);
+  }, [revealed, wordCount, perWordMs, delayMs, onDone]);
 
   let wordIdx = 0;
   return (

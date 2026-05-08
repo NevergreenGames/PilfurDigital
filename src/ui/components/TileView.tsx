@@ -108,6 +108,11 @@ interface Props {
   canMove: boolean;
   canFulfill: boolean;
   willSucceed: boolean;
+  // True when the active character (Demolitionist BREACH) can reclaim
+  // this heat-fulfilled tile by spending dice >= heatClaimSum. Drives
+  // the alternate render: card name + Σ ≥ N requirement instead of the
+  // bare lock emoji.
+  breachable?: boolean;
   onClick?: () => void;
   onHoverStart?: (rect: DOMRect) => void;
   onHoverEnd?: () => void;
@@ -118,6 +123,14 @@ interface Props {
   // Reserved heat dice currently looming over this tile (intent in flight,
   // about to fire on End Turn unless the player preempts).
   loomingDice?: Die[];
+  // Ripple-in animation delay (ms). When set, the tile gains the
+  // .ripple-cell class so it pops into view at the chosen offset. Set
+  // once on initial heist mount via rippleStyle() in GridView.
+  rippleDelayMs?: number;
+  // Glyph rendered as the player pawn — usually the active character's
+  // emoji icon. Falls back to '@' when not provided so legacy callers
+  // and tests still get a recognizable pawn.
+  playerIcon?: string;
 }
 
 export function TileView({
@@ -127,11 +140,14 @@ export function TileView({
   canMove,
   canFulfill,
   willSucceed,
+  breachable,
   onClick,
   onHoverStart,
   onHoverEnd,
   pendingFill,
   loomingDice,
+  rippleDelayMs,
+  playerIcon,
 }: Props) {
   // Effective state for rendering. If a fill is pending, keep the tile
   // looking revealed while the dice-fly animation plays.
@@ -144,6 +160,7 @@ export function TileView({
   if (pendingFill === 'heat') classes.push('hg-tile--heat-incoming');
   if (pendingFill === 'player') classes.push('hg-tile--player-incoming');
   if (loomingDice && loomingDice.length > 0) classes.push('hg-tile--threatened');
+  if (breachable) classes.push('hg-tile--breachable');
   // Cache tiles wear their gold border at every state — the player sees
   // them as caches from the start of the heist even while still under
   // fog. Only the requirement / specific card details are gated on
@@ -155,6 +172,7 @@ export function TileView({
   // cache treatment.
   const isEvent = tile.kind === 'event' && !!tile.eventDef;
   if (isEvent) classes.push('hg-tile--event');
+  if (rippleDelayMs !== undefined) classes.push('ripple-cell');
 
   const interactive = canMove || canFulfill;
 
@@ -176,7 +194,11 @@ export function TileView({
     onHoverStart(e.currentTarget.getBoundingClientRect());
   };
 
-  const style: CSSProperties | undefined = interactive ? { cursor: 'pointer' } : undefined;
+  const style: CSSProperties =
+    interactive ? { cursor: 'pointer' } : {};
+  if (rippleDelayMs !== undefined) {
+    style.animationDelay = `${rippleDelayMs}ms`;
+  }
 
   return (
     <div
@@ -256,7 +278,24 @@ export function TileView({
 
       {/* Fulfilled markers */}
       {tile.state === 'playerFulfilled' && <div className="hg-tile-check">✓</div>}
-      {tile.state === 'heatFulfilled' && <div className="hg-tile-lock">🔒</div>}
+      {tile.state === 'heatFulfilled' && !breachable && (
+        <div className="hg-tile-lock">🔒</div>
+      )}
+      {/* Demolitionist BREACH — show the reclaim requirement (Σ ≥ N) and a
+          ghost of the original card name in place of the lock so the player
+          can see what they're cracking and what it'll cost. */}
+      {tile.state === 'heatFulfilled' && breachable && tile.heatClaimSum !== undefined && (
+        <>
+          {tile.card && (
+            <div className="hg-tile-head hg-tile-head--breach">
+              <div className="hg-tile-glyph">{iconForCard(tile.card)}</div>
+            </div>
+          )}
+          <div className="hg-tile-breach-req" title={`Spend dice summing ≥ ${tile.heatClaimSum}`}>
+            ≥ {tile.heatClaimSum}
+          </div>
+        </>
+      )}
 
       {/* Fog overlay */}
       {showFog && (
@@ -278,7 +317,7 @@ export function TileView({
       {/* Player pawn overlay */}
       {isPlayer && (
         <div className="hg-pawn">
-          <div className="hg-pawn-inner">@</div>
+          <div className="hg-pawn-inner">{playerIcon ?? '@'}</div>
         </div>
       )}
       {/* Looming heat dice are rendered by GridView in a layer above

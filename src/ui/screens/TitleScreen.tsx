@@ -2,6 +2,10 @@ import { useGameStore } from '../../state/gameStore';
 import { useTutorialStore } from '../../state/tutorialStore';
 import { useUIStore } from '../../state/uiStore';
 import { DieGlyph } from '../components/DieGlyph';
+import { GlitchButton } from '../components/GlitchButton';
+import { GlitchTitle } from '../components/GlitchTitle';
+import { GlitchTypewriter } from '../components/GlitchTypewriter';
+import { staggerStyle } from '../transitions/transitionUtils';
 
 const FLOATING_DICE: Array<{ size: 4 | 6 | 8 | 10 | 12 | 20; top: string; left: string; delay: string; px: number }> = [
   { size: 6,  top: '12%', left: '8%',  delay: '0s',   px: 88 },
@@ -42,21 +46,37 @@ export function TitleScreen() {
         ))}
       </div>
       <div className="title-content">
-        <h1 className="title-wordmark">PILFUR</h1>
-        <p className="title-tagline">Five jobs. One getaway.</p>
+        <h1 className="title-wordmark">
+          <GlitchTitle text="PILFUR" perWordMs={70} />
+        </h1>
+        <p className="title-tagline">
+          <GlitchTypewriter text="Five jobs. One getaway." perWordMs={90} delayMs={120} />
+        </p>
         <div className="title-buttons">
-          <button className="primary big" onClick={onPlay}>
-            PLAY
-          </button>
-          <button className="big" onClick={openSettings}>
-            SETTINGS
-          </button>
-          <button className="big" onClick={onHowToPlay}>
-            HOW TO PLAY
-          </button>
-          <button className="big" onClick={openCredits}>
-            CREDITS
-          </button>
+          <GlitchButton
+            className="primary big stagger-item"
+            onClick={onPlay}
+            style={staggerStyle(0, { initial: 200 })}
+            label="PLAY"
+          />
+          <GlitchButton
+            className="big stagger-item"
+            onClick={openSettings}
+            style={staggerStyle(1, { initial: 200 })}
+            label="SETTINGS"
+          />
+          <GlitchButton
+            className="big stagger-item"
+            onClick={onHowToPlay}
+            style={staggerStyle(2, { initial: 200 })}
+            label="HOW TO PLAY"
+          />
+          <GlitchButton
+            className="big stagger-item"
+            onClick={openCredits}
+            style={staggerStyle(3, { initial: 200 })}
+            label="CREDITS"
+          />
         </div>
       </div>
     </div>

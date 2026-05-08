@@ -1,13 +1,18 @@
 import {
+  Character,
   CharacterAbility,
   EventDef,
   HeistTarget,
   PhaseCard,
+  Rig,
 } from '../engine/types';
 import { PHASE_CARDS as BASE_PHASE_CARDS } from '../content/phaseCards';
 import { draftedAbilityPool as BASE_ABILITIES } from '../content/abilities';
 import { TARGETS as BASE_TARGETS } from '../content/targets';
 import { EVENT_POOL as BASE_EVENTS } from '../content/events';
+import { CHARACTERS as BASE_CHARACTERS } from '../content/characters';
+import { RIGS as BASE_RIGS } from '../content/rigs';
+import { STEPS as BASE_TUTORIAL, TutorialStep } from '../tutorial/steps';
 
 /*
  * Content registry — single source of truth for the four design-tunable
@@ -28,19 +33,43 @@ import { EVENT_POOL as BASE_EVENTS } from '../content/events';
  * tweaks a number.
  */
 
-export type ContentKind = 'phase' | 'ability' | 'target' | 'event';
+export type ContentKind =
+  | 'phase'
+  | 'ability'
+  | 'target'
+  | 'event'
+  | 'tutorial'
+  | 'character'
+  | 'rig';
+
+// Tutorial steps' `shouldShow` is a function and can't be serialized into a
+// patch; only the editable subset (screen / text / anchor / mode) is ever
+// stored in the registry override map. applyPatches's shallow `{ ...base,
+// ...patch }` merge naturally leaves shouldShow intact on read.
+type TutorialPatch = Partial<Pick<TutorialStep, 'screen' | 'text' | 'anchor' | 'mode'>>;
 
 interface PatchSet {
   phase: Record<string, Partial<PhaseCard>>;
   ability: Record<string, Partial<CharacterAbility>>;
   target: Record<string, Partial<HeistTarget>>;
   event: Record<string, Partial<EventDef>>;
+  tutorial: Record<string, TutorialPatch>;
+  character: Record<string, Partial<Character>>;
+  rig: Record<string, Partial<Rig>>;
 }
 
 const STORAGE_KEY = 'pilfur:contentPatches:v1';
 
 function emptyPatchSet(): PatchSet {
-  return { phase: {}, ability: {}, target: {}, event: {} };
+  return {
+    phase: {},
+    ability: {},
+    target: {},
+    event: {},
+    tutorial: {},
+    character: {},
+    rig: {},
+  };
 }
 
 let patches: PatchSet = emptyPatchSet();
@@ -70,6 +99,9 @@ function load(): void {
       ability: parsed.ability ?? {},
       target: parsed.target ?? {},
       event: parsed.event ?? {},
+      tutorial: parsed.tutorial ?? {},
+      character: parsed.character ?? {},
+      rig: parsed.rig ?? {},
     };
   } catch {
     // Corrupt patch data — start fresh rather than crash on boot.
@@ -114,6 +146,26 @@ export function getEvents(): EventDef[] {
   return applyPatches(BASE_EVENTS, 'event');
 }
 
+export function getTutorialSteps(): TutorialStep[] {
+  return applyPatches(BASE_TUTORIAL, 'tutorial');
+}
+
+export function getCharacters(): Character[] {
+  return applyPatches(BASE_CHARACTERS, 'character');
+}
+
+export function getCharacter(id: string): Character | undefined {
+  return getCharacters().find((c) => c.id === id);
+}
+
+export function getRigs(): Rig[] {
+  return applyPatches(BASE_RIGS, 'rig');
+}
+
+export function getRig(id: string): Rig | undefined {
+  return getRigs().find((r) => r.id === id);
+}
+
 export function getTargetsByTier(tier: 1 | 2 | 3): HeistTarget[] {
   return getTargets().filter((t) => t.tier === tier);
 }
@@ -129,6 +181,12 @@ export function getBase(kind: ContentKind): Array<{ id: string; [k: string]: unk
       return BASE_TARGETS as unknown as Array<{ id: string }>;
     case 'event':
       return BASE_EVENTS as unknown as Array<{ id: string }>;
+    case 'tutorial':
+      return BASE_TUTORIAL as unknown as Array<{ id: string }>;
+    case 'character':
+      return BASE_CHARACTERS as unknown as Array<{ id: string }>;
+    case 'rig':
+      return BASE_RIGS as unknown as Array<{ id: string }>;
   }
 }
 
@@ -142,6 +200,12 @@ export function getMerged(kind: ContentKind): Array<{ id: string; [k: string]: u
       return getTargets() as unknown as Array<{ id: string }>;
     case 'event':
       return getEvents() as unknown as Array<{ id: string }>;
+    case 'tutorial':
+      return getTutorialSteps() as unknown as Array<{ id: string }>;
+    case 'character':
+      return getCharacters() as unknown as Array<{ id: string }>;
+    case 'rig':
+      return getRigs() as unknown as Array<{ id: string }>;
   }
 }
 
@@ -193,6 +257,9 @@ export function setAllPatches(p: PatchSet): void {
     ability: p.ability ?? {},
     target: p.target ?? {},
     event: p.event ?? {},
+    tutorial: p.tutorial ?? {},
+    character: p.character ?? {},
+    rig: p.rig ?? {},
   };
   persist();
   notify();

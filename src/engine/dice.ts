@@ -1,4 +1,4 @@
-import { Die, DieSize, DieSource, DIE_PROGRESSION } from './types';
+import { Die, DieSize, DieSource } from './types';
 
 let dieCounter = 0;
 export function nextDieId(): string {
@@ -16,12 +16,6 @@ export function rollValue(size: DieSize): number {
 
 export function rollDice(dice: Die[]): Die[] {
   return dice.map((d) => ({ ...d, value: rollValue(d.size) }));
-}
-
-export function nextDieSize(current: DieSize): DieSize {
-  const idx = DIE_PROGRESSION.indexOf(current);
-  if (idx === -1 || idx === DIE_PROGRESSION.length - 1) return current;
-  return DIE_PROGRESSION[idx + 1];
 }
 
 export function isAtMax(d: Die): boolean {

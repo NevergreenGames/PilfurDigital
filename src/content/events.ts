@@ -203,6 +203,49 @@ export const EVENT_POOL: EventDef[] = [
     ],
   },
   {
+    id: 'the-workbench',
+    title: 'THE WORKBENCH',
+    flavor:
+      'A fence-cum-armorer wipes solvent from her hands. "Bring me one of yours. I\'ll sharpen it. Pick how."',
+    choices: [
+      {
+        id: 'workbench-charge',
+        kind: 'upgradeAbility',
+        label: '+1 MAX CHARGE',
+        creds: 5,
+        costLabel: '¢ 5',
+        rewardLabel: '+1 ⚡ cap',
+        hint: 'Pick an owned ability — increase its max charges by 1 (cap 10).',
+        upgrade: { kind: 'increaseMaxCharges', by: 1 },
+      },
+      {
+        id: 'workbench-easier',
+        kind: 'upgradeAbility',
+        label: 'EASIER TRIGGER',
+        creds: 8,
+        costLabel: '¢ 8',
+        rewardLabel: '−1 to trigger',
+        hint: "Pick an owned ability — shrink its charge trigger by 1 (e.g. 4-of-a-kind → 3-of-a-kind).",
+        upgrade: { kind: 'reduceRequirement', by: 1 },
+      },
+      {
+        id: 'workbench-spark',
+        kind: 'upgradeAbility',
+        label: 'PRIMED ON ENTRY',
+        creds: 6,
+        costLabel: '¢ 6',
+        rewardLabel: 'starts charged',
+        hint: 'Pick an owned ability — when a heist begins with 0 charges, it starts at 1.',
+        upgrade: { kind: 'startWithCharge' },
+      },
+      {
+        id: 'walk',
+        kind: 'walkAway',
+        label: 'WALK AWAY',
+      },
+    ],
+  },
+  {
     id: 'the-fixer',
     title: 'THE FIXER',
     flavor:
@@ -241,5 +284,9 @@ export const RARE_ABILITY_POOL: CharacterAbility[] = [
     // count: 99 leans on the existing removeHeat handler's
     // slice(0, max(0, len - count)) → empties the heat tray.
     effect: { id: 'removeHeat', text: 'Wipe all heat dice', params: { count: 99 } },
+    // One-shot ult: wiping every heat die is meant to be a panic-button
+    // rather than a steady drip. Capped at 1 stored charge.
+    maxCharges: 1,
+    upgrades: [],
   },
 ];

@@ -24,6 +24,7 @@ type Context = 'idle' | 'heist' | 'outcome';
 const SCREEN_TO_CONTEXT: Record<Screen, Context> = {
   title: 'idle',
   characterSelect: 'idle',
+  rigSelect: 'idle',
   map: 'idle',
   heist: 'heist',
   draft: 'idle',

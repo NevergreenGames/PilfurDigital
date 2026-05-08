@@ -1,9 +1,11 @@
 import { MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Die, HeatIntent, HeistState, Position, Tile } from '../../engine/types';
 import { findSatisfyingSubset, isSubsetSatisfying } from '../../engine/requirements';
+import { useGameStore } from '../../state/gameStore';
 import { TileView } from './TileView';
 import { TileHoverCard } from './TileHoverCard';
 import { DieView } from './DieView';
+import { rippleDelay } from '../transitions/transitionUtils';
 
 interface Props {
   heist: HeistState;
@@ -81,6 +83,10 @@ export function GridView({
   const [hover, setHover] = useState<{ tile: Tile; rect: DOMRect } | null>(null);
   const { grid, player } = heist;
   const isOver = !!heist.outcome;
+  // Active character's pawn glyph. Falls back to '@' if there's no run
+  // (e.g. dev-tooling mounts the GridView with a stub heist). Subscribing
+  // to just the icon string keeps re-renders cheap.
+  const playerIcon = useGameStore((s) => s.run?.character.icon ?? '@');
 
   // Camera state.
   const [camera, setCamera] = useState<Position>(() => clampCamera(player, grid.rows, grid.cols));
@@ -242,21 +248,52 @@ export function GridView({
     [heist.pool],
   );
 
+  // Demolitionist BREACH: when the active character's passive is
+  // 'reclaimHeatTilesByDiceSum', heat-fulfilled phase tiles become
+  // candidate fulfill targets — the requirement shifts to "spend dice
+  // summing >= heatClaimSum". `breachActive` flips the alternate path
+  // on for everywhere the grid renders / dispatches eligibility.
+  const run = useGameStore((s) => s.run);
+  const breachActive =
+    run?.character.passive.id === 'reclaimHeatTilesByDiceSum';
+
   // Per-tile fulfillability map. Recomputed whenever the pool, the player's
   // selection, or the grid changes, so the green "will-succeed" outline
   // reflects the current dice state at all times.
   const willSucceedByTileId = useMemo(() => {
     const map = new Map<string, boolean>();
     for (const tile of grid.tiles) {
-      if (tile.state !== 'revealed' || !tile.card) continue;
-      const reqMet =
-        selectedDice.length > 0
-          ? isSubsetSatisfying(selectedDice, tile.card.requirement)
-          : findSatisfyingSubset(rolledPool, tile.card.requirement) !== null;
-      map.set(tile.id, reqMet);
+      // Standard revealed-card path.
+      if (tile.state === 'revealed' && tile.card) {
+        const reqMet =
+          selectedDice.length > 0
+            ? isSubsetSatisfying(selectedDice, tile.card.requirement)
+            : findSatisfyingSubset(rolledPool, tile.card.requirement) !== null;
+        map.set(tile.id, reqMet);
+        continue;
+      }
+      // Breach path: heat-fulfilled phase tiles become fulfillable for the
+      // Demolitionist when current pool dice can sum to the heat-claim
+      // threshold. Target tiles are excluded — heat capture there is
+      // already game-over.
+      if (
+        breachActive &&
+        tile.state === 'heatFulfilled' &&
+        tile.kind !== 'target' &&
+        tile.heatClaimSum !== undefined
+      ) {
+        const minSum = tile.heatClaimSum;
+        const sumOf = (ds: Die[]) =>
+          ds.reduce((a, d) => a + (d.value ?? 0), 0);
+        const reqMet =
+          selectedDice.length > 0
+            ? sumOf(selectedDice) >= minSum
+            : sumOf(rolledPool) >= minSum;
+        map.set(tile.id, reqMet);
+      }
     }
     return map;
-  }, [grid.tiles, selectedDice, rolledPool]);
+  }, [grid.tiles, selectedDice, rolledPool, breachActive]);
 
   // True iff at least one tile is movable or fulfillable from the player's
   // current square. The grid uses this to dim every other tile so the
@@ -271,9 +308,16 @@ export function GridView({
       if (isWalkable(tile)) return true;
       if (isUnfulfilledRevealed(tile)) return true;
       if (isInteractableEvent(tile)) return true;
+      if (
+        breachActive &&
+        tile.state === 'heatFulfilled' &&
+        tile.kind !== 'target' &&
+        tile.heatClaimSum !== undefined
+      )
+        return true;
     }
     return false;
-  }, [grid.tiles, player.row, player.col, isOver]);
+  }, [grid.tiles, player.row, player.col, isOver, breachActive]);
 
   // Translate offset for the absolutely-positioned grid inside the viewport.
   // While dragging, add the in-flight drag offset on top of the camera-derived
@@ -411,6 +455,16 @@ export function GridView({
             const isPlayer = tile.pos.row === player.row && tile.pos.col === player.col;
             const isTargetTile =
               tile.pos.row === grid.target.row && tile.pos.col === grid.target.col;
+            // Ripple-in: each tile fades in with a delay proportional to
+            // its distance from the player's spawn. The animation runs
+            // exactly once on mount (when the heist scene appears) since
+            // tiles aren't re-mounted on subsequent state updates.
+            const rippleDelayMs = rippleDelay(
+              tile.pos.row,
+              tile.pos.col,
+              grid.start,
+              { step: 35, initial: 60 },
+            );
 
             const adjacent = isAdjacent(
               player.row,
@@ -422,8 +476,20 @@ export function GridView({
             const canMove =
               !isOver && adjacent && isWalkable(tile) && !isPlayer;
 
+            // Heat-fulfilled tile becomes fulfillable for the Demolitionist
+            // (BREACH passive) — surface it as a click target so the same
+            // canFulfill / will-succeed pipeline drives the alternate path.
+            const breachable =
+              !isOver &&
+              adjacent &&
+              breachActive &&
+              tile.state === 'heatFulfilled' &&
+              tile.kind !== 'target' &&
+              tile.heatClaimSum !== undefined;
+
             const fulfillable =
-              !isOver && adjacent && isUnfulfilledRevealed(tile) && tile.card !== null;
+              (!isOver && adjacent && isUnfulfilledRevealed(tile) && tile.card !== null) ||
+              breachable;
 
             const willSucceed =
               fulfillable && (willSucceedByTileId.get(tile.id) ?? false);
@@ -439,7 +505,7 @@ export function GridView({
             const hoverable =
               !isOver &&
               tile.card !== null &&
-              tile.state === 'revealed';
+              (tile.state === 'revealed' || breachable);
 
             const pendingFill: 'heat' | 'player' | undefined =
               pendingPlayerTile === tile.id ? 'player' : undefined;
@@ -460,8 +526,11 @@ export function GridView({
                 canMove={canMove}
                 canFulfill={canFulfill}
                 willSucceed={willSucceed}
+                breachable={breachable}
                 pendingFill={pendingFill}
                 loomingDice={loomingDice}
+                rippleDelayMs={rippleDelayMs}
+                playerIcon={playerIcon}
                 onClick={() => guardedTileClick(tile)}
                 onHoverStart={
                   hoverable ? (rect) => setHover({ tile, rect }) : undefined

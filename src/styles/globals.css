@@ -115,6 +115,18 @@ button.small { padding: 4px 8px; font-size: 11px; margin-left: 8px; }
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 16px;
 }
+/* The stagger wrapper is the grid cell; the button inside fills it.
+   Wrapper carries the entrance animation so swapping the button's own
+   animation property on hover/active/selected can't restart it. */
+.character-grid > .stagger-item,
+.rig-grid > .stagger-item {
+  display: flex;
+}
+.character-grid > .stagger-item > .character-card,
+.rig-grid > .stagger-item > .rig-card {
+  flex: 1 1 auto;
+  min-width: 0;
+}
 
 .character-card {
   background: var(--bg-2);
@@ -151,6 +163,319 @@ button.small { padding: 4px 8px; font-size: 11px; margin-left: 8px; }
   color: var(--muted);
   text-align: center;
   font-style: italic;
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   RIG SELECT — second-stage loadout picker between character-select and
+   the run. Same general shape as character-select cards, but the
+   "details" surface die glyphs and a creds chip instead of a passive
+   ability block. Locked rigs render dimmed with the unlock-achievement
+   description as a hint.
+   ────────────────────────────────────────────────────────────────── */
+.rig-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+.rig-card {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.rig-card--locked {
+  opacity: 0.55;
+  filter: grayscale(0.6);
+}
+.rig-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.rig-card-name {
+  font-size: 18px;
+  font-weight: bold;
+  letter-spacing: 2px;
+  color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.rig-card-icon {
+  font-size: 22px;
+  line-height: 1;
+  filter: drop-shadow(0 0 6px rgba(224, 175, 104, 0.55));
+}
+.rig-card-gold {
+  font-size: 13px;
+  font-weight: bold;
+  color: var(--accent);
+  background: rgba(240, 189, 114, 0.10);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  padding: 2px 10px;
+  letter-spacing: 1px;
+}
+.rig-card-flavor {
+  font-style: italic;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.rig-card-dice {
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.rig-card-dice-label {
+  font-size: 10px;
+  font-weight: bold;
+  letter-spacing: 2px;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+.rig-card-dice-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+/* Per-source tints so a row of die glyphs reads at a glance — ghost
+   dice get the violet surge color we use elsewhere; stash dice get the
+   neutral green. Other sources fall through to the glyph's default. */
+.rig-card-die--ghost {
+  filter: drop-shadow(0 0 6px rgba(187, 154, 247, 0.55));
+  color: #bb9af7;
+}
+.rig-card-die--stash {
+  color: #9ece6a;
+}
+.rig-card-locked {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: stretch;
+}
+.rig-card-locked-badge {
+  font-size: 12px;
+  font-weight: bold;
+  letter-spacing: 2px;
+  color: var(--muted);
+  text-align: center;
+  padding: 4px 0;
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.25);
+}
+.rig-card-locked-hint {
+  font-size: 11px;
+  color: var(--muted);
+  text-align: center;
+  font-style: italic;
+  line-height: 1.4;
+}
+/* Generalized "← Back to <somewhere>" footer link, used by both the
+   character-select and rig-select screens (and any future screen that
+   needs the same minimal-text dismissal affordance). The legacy
+   .rig-select-back class is kept as an alias for any stragglers. */
+.screen-back-link,
+.rig-select-back {
+  margin-top: 16px;
+  display: flex;
+  justify-content: center;
+}
+.screen-back-link button,
+.rig-select-back button {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  padding: 6px 16px;
+  border-radius: var(--radius);
+  font-family: inherit;
+  cursor: pointer;
+}
+.screen-back-link button:hover,
+.rig-select-back button:hover {
+  color: var(--fg);
+  border-color: var(--fg);
+}
+
+/* Single-CONTINUE action row at the bottom of the select screens.
+   Centered so the button reads as the screen's terminal commit. */
+.select-actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 24px;
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   SELECT-CARD — shared treatment for character-card / rig-card when
+   they're rendered as <button> elements. Selected state is a solid
+   accent border with a subtle pulsing glow — gritty terminal aesthetic,
+   no rainbow gradient.
+   ────────────────────────────────────────────────────────────────── */
+.select-card {
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+  position: relative;
+  transition: transform 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+.select-card:hover:not(:disabled) {
+  background: var(--bg-2);
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+.select-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.select-card:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.select-card--selected {
+  border-color: var(--accent);
+  box-shadow:
+    0 0 0 1px var(--accent),
+    0 0 14px rgba(240, 189, 114, 0.35);
+  transform: translateY(-2px);
+  animation: select-card-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes select-card-pulse {
+  0%, 100% {
+    box-shadow:
+      0 0 0 1px var(--accent),
+      0 0 10px rgba(240, 189, 114, 0.28);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px var(--accent),
+      0 0 18px rgba(240, 189, 114, 0.5);
+  }
+}
+
+body[data-reduce-motion="true"] .select-card--selected {
+  animation: none;
+}
+
+/* Locked cards never get the selection treatment. */
+.select-card.character-card--locked.select-card--selected,
+.select-card.rig-card--locked.select-card--selected {
+  box-shadow: none;
+  animation: none;
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   GLITCH HOVER / ACTIVE — same chromatic-aberration + RGB-split-text
+   vocabulary GlitchButton uses, applied to the character / rig cards.
+   Locked cards still flicker on hover, but at a fraction of the
+   intensity so they read as inert without going dead-silent.
+   ────────────────────────────────────────────────────────────────── */
+
+/* Hover (unlocked) — soft chromatic aberration + a saturation nudge.
+   Declared AFTER --selected so a hovered+selected card gets the glitch
+   frame instead of the amber pulse. */
+.select-card:hover:not(:disabled) {
+  box-shadow:
+    2px 0 0 0 rgba(247, 118, 142, 0.55),
+    -2px 0 0 0 rgba(108, 255, 224, 0.55),
+    0 2px 0 0 rgba(198, 108, 255, 0.4);
+  filter: saturate(1.08);
+}
+/* Hover RGB-split on text. Class names enumerated so emoji icons / dice
+   glyphs (which would tear visibly with text-shadow) stay clean. */
+.select-card:hover:not(:disabled) :is(
+  .character-name,
+  .character-flavor,
+  .ability-name,
+  .ability-effect,
+  .ability-flavor,
+  .character-locked-hint,
+  .rig-card-name,
+  .rig-card-flavor,
+  .rig-card-locked-hint
+) {
+  text-shadow:
+    1px 0 0 rgba(247, 118, 142, 0.7),
+    -1px 0 0 rgba(108, 255, 224, 0.7);
+}
+
+/* Active (mousedown) — punchier offsets, fully saturated tints, a
+   one-shot shock pulse. Truncates if the user releases mid-animation,
+   which is fine — it's a quick burst regardless. */
+.select-card:active:not(:disabled) {
+  box-shadow:
+    5px 0 0 0 rgba(247, 118, 142, 0.85),
+    -5px 0 0 0 rgba(108, 255, 224, 0.85),
+    0 4px 0 0 rgba(198, 108, 255, 0.7);
+  filter: saturate(1.18);
+  animation: select-card-shock 280ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* Active-state text effect is handled by GlitchPulse (JS-driven character
+   scramble) — see ui/components/GlitchPulse.tsx. The box-level chromatic
+   aberration above is intentionally the only CSS feedback during click,
+   so the scramble settle isn't fighting heavy text-shadows. */
+
+@keyframes select-card-shock {
+  0% {
+    box-shadow:
+      5px 0 0 0 rgba(247, 118, 142, 0.85),
+      -5px 0 0 0 rgba(108, 255, 224, 0.85),
+      0 0 0 0 rgba(198, 108, 255, 0.7);
+  }
+  60% {
+    box-shadow:
+      5px 0 0 0 rgba(247, 118, 142, 0.85),
+      -5px 0 0 0 rgba(108, 255, 224, 0.85),
+      0 0 18px 6px rgba(198, 108, 255, 0.4);
+  }
+  100% {
+    box-shadow:
+      5px 0 0 0 rgba(247, 118, 142, 0.85),
+      -5px 0 0 0 rgba(108, 255, 224, 0.85),
+      0 0 0 12px rgba(198, 108, 255, 0);
+  }
+}
+
+/* Locked — diminished glitch echo. Cursor stays "not-allowed" via the
+   :disabled rule above; here we layer a subtle chromatic aberration so
+   hovering still acknowledges the click intent. No active-state shock. */
+.select-card:disabled:hover {
+  box-shadow:
+    1px 0 0 0 rgba(247, 118, 142, 0.18),
+    -1px 0 0 0 rgba(108, 255, 224, 0.18);
+  filter: none;
+}
+.select-card:disabled:hover :is(
+  .character-name,
+  .ability-name,
+  .rig-card-name,
+  .character-locked-hint,
+  .rig-card-locked-hint
+) {
+  text-shadow:
+    0.5px 0 0 rgba(247, 118, 142, 0.25),
+    -0.5px 0 0 rgba(108, 255, 224, 0.25);
+}
+
+/* Reduce-motion: kill the shock animation; the static box-shadow split
+   on hover/active is enough to read as glitch without movement. */
+body[data-reduce-motion="true"] .select-card:active:not(:disabled) {
+  animation: none;
 }
 
 .character-name { font-size: 18px; font-weight: bold; letter-spacing: 2px; }
@@ -549,6 +874,25 @@ button.small { padding: 4px 8px; font-size: 11px; margin-left: 8px; }
   opacity: 0.55;
   filter: saturate(0.6);
 }
+/* Upgrade-card variant — same shape as a new-ability card, with a
+   subtle accent so the player reads it as a different kind of pick. */
+.draft-option--upgrade {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px rgba(240, 189, 114, 0.15) inset;
+}
+.draft-pill {
+  display: inline-block;
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  font-weight: bold;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  padding: 1px 8px;
+  margin-right: 6px;
+  background: rgba(240, 189, 114, 0.10);
+  vertical-align: middle;
+}
 .ability-cost {
   font-size: 13px;
   letter-spacing: 1px;
@@ -868,6 +1212,41 @@ button.small { padding: 4px 8px; font-size: 11px; margin-left: 8px; }
   color: var(--fg);
   display: inline;
 }
+/* Click-to-rename hover affordance — soft underline + cursor on the
+   detail-name h2. Communicates that the name is editable in place
+   without the user having to discover it via tooltip. */
+.dev-detail-name {
+  cursor: text;
+  border-bottom: 1px dashed transparent;
+  transition: border-color 120ms ease;
+  padding-bottom: 1px;
+}
+.dev-detail-name:hover {
+  border-bottom-color: var(--muted);
+}
+/* Rename input — replaces the h2 in place. Sized to look like the
+   heading it took over from (same font-size + letter-spacing) so
+   nothing jumps when the swap happens. */
+.dev-detail-rename {
+  background: rgba(108, 255, 224, 0.06);
+  border: 1px solid #6cffe0;
+  border-radius: 4px;
+  color: var(--fg);
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: bold;
+  letter-spacing: 2px;
+  padding: 2px 6px;
+  outline: none;
+  /* Matches the heading's natural display so the surrounding bits
+     (id pill, OVERRIDDEN/UNSAVED chips) keep their layout. */
+  display: inline-block;
+  min-width: 240px;
+  max-width: 100%;
+}
+.dev-detail-rename:focus {
+  box-shadow: 0 0 0 2px rgba(108, 255, 224, 0.25);
+}
 .dev-detail-id {
   display: inline-block;
   margin-left: 10px;
@@ -1106,6 +1485,24 @@ input[type='checkbox'].dev-checkbox {
   gap: 6px;
   align-items: center;
 }
+
+/* Rig starting-dice editor — each row is one [size, source, count] spec. */
+.dev-rig-dice {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dev-rig-die-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.dev-add-btn {
+  align-self: flex-start;
+  font-size: 11px;
+  letter-spacing: 1px;
+  padding: 4px 10px;
+}
 .dev-die-chip {
   display: inline-flex;
   align-items: center;
@@ -1202,4 +1599,292 @@ input[type='checkbox'].dev-checkbox {
 .dev-detail-pill--dirty {
   background: #ff8aa0;
   color: var(--bg);
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   SCENE TRANSITIONS — universal enter/exit shell + reusable element
+   reveal primitives. The wrapper component is SceneTransition; CSS
+   variables (--scene-enter-ms, --scene-exit-ms) are written by the
+   wrapper and consumed by these keyframes.
+
+   Authoring rules:
+   - Exit is *much* shorter than enter (snappy out, deliberate in).
+   - Text inside an exiting scene runs glitch-out via a class match.
+   - Per-element stagger / ripple is opt-in via the .stagger-item and
+     .ripple-cell helper classes plus inline animationDelay (see
+     transitionUtils.ts).
+   - body[data-reduce-motion="true"] short-circuits everything via the
+     existing global rule in overlays.css.
+   ────────────────────────────────────────────────────────────────── */
+
+.scene {
+  position: relative;
+  width: 100%;
+  /* `both` so the start frame applies before the animation begins (no
+     flash of full-opacity content during enter) and the end frame
+     persists after exit completes. */
+  animation-fill-mode: both;
+}
+
+.scene--enter {
+  animation: scene-enter var(--scene-enter-ms, 700ms) cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.scene--exit {
+  animation: scene-exit var(--scene-exit-ms, 200ms) cubic-bezier(0.55, 0, 0.7, 0.2) both;
+}
+
+@keyframes scene-enter {
+  0%   { opacity: 0; transform: translateY(8px); filter: blur(6px); }
+  60%  { opacity: 1; }
+  100% { opacity: 1; transform: translateY(0); filter: blur(0); }
+}
+
+@keyframes scene-exit {
+  0%   { opacity: 1; transform: scale(1);    filter: blur(0); }
+  100% { opacity: 0; transform: scale(0.97); filter: blur(8px); }
+}
+
+/* Text-glitch on exit. Targets headings + any element with .glitch-text
+   inside a leaving scene. The intent: type-set content reads as
+   destabilized for an instant before the scene fade carries it away. */
+.scene--exit h1,
+.scene--exit h2,
+.scene--exit .title-wordmark,
+.scene--exit .glitch-text {
+  animation: scene-text-glitch-out var(--scene-exit-ms, 200ms) steps(8, end) both;
+}
+
+@keyframes scene-text-glitch-out {
+  0%   { opacity: 1; transform: translate(0, 0);    filter: blur(0); }
+  20%  { opacity: 0.85; transform: translate(2px, -1px); filter: hue-rotate(40deg); }
+  40%  { opacity: 0.7;  transform: translate(-2px, 1px); }
+  60%  { opacity: 0.6;  transform: translate(1px, 0);    filter: hue-rotate(-30deg) blur(0.5px); }
+  80%  { opacity: 0.4;  transform: translate(-1px, -1px); }
+  100% { opacity: 0;    transform: translate(0, 4px);   filter: blur(4px); }
+}
+
+/* Stagger primitive — used for linear lists (character cards, draft
+   options, title-screen menu, map target cards). Inline style sets the
+   per-item animationDelay; the keyframe is shared. */
+.stagger-item {
+  animation: stagger-pop 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes stagger-pop {
+  0%   { opacity: 0; transform: translateY(6px); filter: blur(3px); }
+  100% { opacity: 1; transform: translateY(0);   filter: blur(0); }
+}
+
+/* Ripple primitive — used for 2D grids (the heist grid). Each cell's
+   animationDelay encodes its distance from a chosen center, producing
+   a wave-front reveal. */
+.ripple-cell {
+  animation: ripple-pop 380ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes ripple-pop {
+  0%   { opacity: 0; transform: scale(0.6);  filter: blur(4px); }
+  60%  { opacity: 1; }
+  100% { opacity: 1; transform: scale(1);    filter: blur(0); }
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   GLITCH BUTTON — sibling effect to GlitchTitle's screen-tear treatment,
+   but driven by interaction state instead of a periodic burst loop.
+   Reuses the same color palette (#f7768e / #6cffe0 / #c66cff), the same
+   mix-blend-mode: screen layering trick, and the same per-band X offset
+   + clip-path inset shape so the two effects feel like the same
+   visual language.
+
+   Markup shape (rendered by GlitchButton.tsx):
+     <button class="glitch-btn [glitch-btn--hover|--active] {user class}">
+       <span class="glitch-btn-main">{children}</span>
+       (when hover or active, plus shock burst on first mousedown frame)
+       <span class="glitch-btn-shock" />
+       <span class="glitch-btn-tear glitch-btn-tear--1">{children}</span>
+       <span class="glitch-btn-tear glitch-btn-tear--2">{children}</span>
+       <span class="glitch-btn-tear glitch-btn-tear--3">{children}</span>
+     </button>
+
+   Hover state: tear bands at ~2px X offset, soft (~55%) tint alpha.
+   Active state: tear bands snap to ~5px X offset, fully saturated tint,
+   plus a one-shot expanding shock outline. Reduce-motion users have all
+   animation/transition durations zeroed by overlays.css's global rule —
+   the static bands are still visible because they don't depend on the
+   transition to fade in.
+   ────────────────────────────────────────────────────────────────── */
+
+.glitch-btn {
+  position: relative;
+  /* Bands are absolutely positioned inside the button — keep them inside
+     its bounds so the surrounding layout doesn't shift on hover. The
+     children themselves are wrapped in .glitch-btn-main so they sit
+     above the bands (z-index stacking on .glitch-btn-tear is below
+     .glitch-btn-main). */
+  isolation: isolate;
+  overflow: visible;
+  /* Smooth the chromatic-aberration box-shadow transition that fires on
+     hover/active. The shadow itself is set on --hover/--active variants
+     below; tying the transition to `box-shadow` here means the splits
+     fade in instead of snapping. */
+  transition: box-shadow 140ms ease-out, filter 140ms ease-out;
+}
+
+/* Hover — chromatic aberration on the button silhouette. The three
+   colored copies of the outline visually "split" the button into
+   magenta/cyan/violet ghosts so the entire button reads as torn,
+   not just the text. Subtle on hover (~50% intensity). */
+.glitch-btn--hover {
+  box-shadow:
+    2px 0 0 0 rgba(247, 118, 142, 0.5),
+    -2px 0 0 0 rgba(108, 255, 224, 0.5),
+    0 2px 0 0 rgba(198, 108, 255, 0.4);
+}
+
+/* Active — punchier offsets, fully saturated tints, and a slight
+   filter saturate to push the shock further. The shock pulse layer
+   handled separately by .glitch-btn-shock fires once on mousedown. */
+.glitch-btn--active {
+  box-shadow:
+    5px 0 0 0 rgba(247, 118, 142, 0.85),
+    -5px 0 0 0 rgba(108, 255, 224, 0.85),
+    0 4px 0 0 rgba(198, 108, 255, 0.7);
+  filter: saturate(1.15);
+}
+.glitch-btn-main {
+  position: relative;
+  z-index: 2;
+  display: inline-block;
+}
+
+.glitch-btn-tear {
+  position: absolute;
+  /* Inset matches the button's content box; the bands replicate the
+     children, so a small horizontal padding adjustment isn't needed —
+     the tear text aligns with the main text by default. */
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 1;
+  white-space: nowrap;
+  mix-blend-mode: screen;
+  text-shadow: none;
+  /* Match the button's inner padding so the duplicated text lines up
+     with the .glitch-btn-main label. The actual padding of the button
+     (set by .primary / .big / etc.) is on the host element; flex
+     centering inside the band keeps the duplicated text in the same
+     visual position. */
+  padding: inherit;
+  /* Tinted band background — picks up the host button's border-radius
+     so the band reads as a sliced ghost-copy of the WHOLE button, not
+     just the text. The actual color is set per-band below. The default
+     is transparent so disabled-state buttons still read inert. */
+  background: transparent;
+  border-radius: inherit;
+  border: none;
+  font: inherit;
+  letter-spacing: inherit;
+  /* Subtle X jitter so the band reads as live, not static. The base
+     translateX is set per-band below; this keyframe nudges from there. */
+  animation: btn-tear-jitter 160ms steps(4, end) infinite;
+  transition: transform 150ms ease-out, opacity 150ms ease-out, color 150ms ease-out, background-color 150ms ease-out;
+}
+
+/* Hover state — gentle. Each band tints both its text AND its
+   background-shape (low alpha), so the slice reads as a ghost copy of
+   the whole button, not just the label. */
+.glitch-btn--hover .glitch-btn-tear--1 {
+  transform: translateX(2px);
+  color: rgba(247, 118, 142, 0.55);
+  background-color: rgba(247, 118, 142, 0.12);
+  animation-delay: 0ms;
+}
+.glitch-btn--hover .glitch-btn-tear--2 {
+  transform: translateX(-2px);
+  color: rgba(108, 255, 224, 0.55);
+  background-color: rgba(108, 255, 224, 0.10);
+  animation-delay: 30ms;
+}
+.glitch-btn--hover .glitch-btn-tear--3 {
+  transform: translateX(1px);
+  color: rgba(198, 108, 255, 0.55);
+  background-color: rgba(198, 108, 255, 0.12);
+  animation-delay: 60ms;
+}
+
+/* Active state — punchy. Bigger offsets, fully saturated tints, and
+   stronger background alphas so the sliced silhouette reads more
+   vividly. */
+.glitch-btn--active .glitch-btn-tear--1 {
+  transform: translateX(5px);
+  color: #f7768e;
+  background-color: rgba(247, 118, 142, 0.22);
+  animation-delay: 0ms;
+  animation-duration: 100ms;
+}
+.glitch-btn--active .glitch-btn-tear--2 {
+  transform: translateX(-6px);
+  color: #6cffe0;
+  background-color: rgba(108, 255, 224, 0.20);
+  animation-delay: 30ms;
+  animation-duration: 100ms;
+}
+.glitch-btn--active .glitch-btn-tear--3 {
+  transform: translateX(4px);
+  color: #c66cff;
+  background-color: rgba(198, 108, 255, 0.22);
+  animation-delay: 60ms;
+  animation-duration: 100ms;
+}
+
+/* Per-band horizontal-third clipping. Same vocabulary as
+   .glitch-title-tear--N: each band shows only a slice of the label
+   so the offsets read as torn channel separation rather than blurry
+   ghost text. */
+.glitch-btn-tear--1 { clip-path: inset(0 0 66% 0); }
+.glitch-btn-tear--2 { clip-path: inset(33% 0 33% 0); }
+.glitch-btn-tear--3 { clip-path: inset(66% 0 0 0); }
+
+@keyframes btn-tear-jitter {
+  0%   { translate: 0 0; }
+  25%  { translate: -1px 0; }
+  50%  { translate: 1px 1px; }
+  75%  { translate: -1px -1px; }
+  100% { translate: 0 0; }
+}
+
+/* Shock burst — a one-shot expanding outline on mousedown. Sits behind
+   the label (z-index: 0) so it reads as a halo, not an overlay. The
+   GlitchButton component re-keys this element on each press so the
+   animation always starts from frame 0. */
+.glitch-btn-shock {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  box-shadow:
+    0 0 0 0 rgba(247, 118, 142, 0.6),
+    0 0 0 0 rgba(108, 255, 224, 0.5);
+  animation: btn-shock 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes btn-shock {
+  0% {
+    box-shadow:
+      0 0 0 0 rgba(247, 118, 142, 0.7),
+      0 0 0 0 rgba(108, 255, 224, 0.6);
+    opacity: 1;
+  }
+  60% {
+    box-shadow:
+      0 0 0 6px rgba(247, 118, 142, 0.0),
+      0 0 14px 4px rgba(198, 108, 255, 0.35);
+    opacity: 0.9;
+  }
+  100% {
+    box-shadow:
+      0 0 0 10px rgba(247, 118, 142, 0.0),
+      0 0 0 0 rgba(108, 255, 224, 0.0);
+    opacity: 0;
+  }
 }

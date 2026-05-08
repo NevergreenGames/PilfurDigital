@@ -47,8 +47,16 @@ export const STEPS: TutorialStep[] = [
     screen: 'characterSelect',
     text: "Pick your crew of one. Each character starts with a unique die and an always-on passive that bends a core rule. Click a character to choose.",
     anchor: '.character-grid',
-    mode: 'auto',
+    mode: 'info',
     shouldShow: onScreen('characterSelect'),
+  },
+  {
+    id: 'rigSelect.intro',
+    screen: 'rigSelect',
+    text: "Pick your RIG — the kit you bring decides the starting dice and creds for every heist this run. Locked rigs reveal an achievement to chase.",
+    anchor: '.rig-grid',
+    mode: 'info',
+    shouldShow: onScreen('rigSelect'),
   },
   {
     id: 'map.intro',
@@ -80,6 +88,16 @@ export const STEPS: TutorialStep[] = [
         (t) => t.state === 'revealed' && t.kind !== 'start',
       );
     },
+  },
+  {
+    id: 'heist.firstGhostDie',
+    screen: 'heist',
+    text: "Ghost dice 👻 fade on your next fulfillment whether you spend them or not. The auto-selector prioritizes them for you — burn them before they vanish.",
+    anchor: '.die.die--ghost-source',
+    mode: 'info',
+    shouldShow: (ctx) =>
+      onScreen('heist')(ctx) &&
+      Boolean(ctx.heist?.pool.some((d) => d.source === 'ghost' && d.value !== null)),
   },
   {
     id: 'heist.firstHeatLooming',

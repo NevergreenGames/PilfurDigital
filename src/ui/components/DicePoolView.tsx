@@ -25,6 +25,13 @@ interface Props {
   // can see have just changed react visibly so the cause-and-effect
   // (ability fires → these dice change) is unmistakable.
   impactedDieIds?: Set<string>;
+  // Pool die ids the most-recent ability activation just rerolled (a
+  // reroll-class effect like rerollHighest / rerollLowest / rerollAll /
+  // rerollSelected). Plays the same shake the whole-pool roll plays —
+  // composes with `impactedDieIds` on dice that are both targeted and
+  // rerolled. Reroll uses translate/rotate; impact uses filter/scale —
+  // the two animations don't fight.
+  rerollingDieIds?: Set<string>;
 }
 
 export function DicePoolView({
@@ -37,6 +44,7 @@ export function DicePoolView({
   rollNonce,
   highlightedDieIds,
   impactedDieIds,
+  rerollingDieIds,
 }: Props) {
   const [jiggling, setJiggling] = useState(false);
   useEffect(() => {
@@ -64,6 +72,7 @@ export function DicePoolView({
           const willConsume = previewConsumedIds?.has(die.id);
           const spotlight = highlightedDieIds?.has(die.id) ?? false;
           const impacted = impactedDieIds?.has(die.id) ?? false;
+          const rerolling = rerollingDieIds?.has(die.id) ?? false;
           return (
             <DieView
               key={die.id}
@@ -74,6 +83,7 @@ export function DicePoolView({
               ghost={willConsume ? 'will-consume' : undefined}
               spotlight={spotlight}
               impacted={impacted}
+              rerolling={rerolling}
             />
           );
         })}
